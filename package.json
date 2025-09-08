@@ -1,0 +1,69 @@
+{
+  "name": "ielts-appointment-monitor",
+  "version": "1.0.0",
+  "description": "Automated monitoring system for IELTS exam appointments on irsafam.org",
+  "main": "dist/index.js",
+  "bin": {
+    "ielts-monitor": "dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "npm run clean && tsc",
+    "build:prod": "npm run clean && tsc --sourceMap false",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "test": "jest --passWithNoTests",
+    "test:unit": "jest --selectProjects unit --passWithNoTests",
+    "test:integration": "jest --selectProjects integration --passWithNoTests --runInBand",
+    "test:watch": "jest --watch --passWithNoTests",
+    "test:coverage": "jest --coverage --passWithNoTests",
+    "test:all": "npm run test:unit && npm run test:integration",
+    "clean": "rimraf dist",
+    "prebuild": "npm run clean",
+    "postbuild": "echo 'Build completed successfully'",
+    "package": "npm run build:prod && npm pack",
+    "package:linux": "npm run build:prod && npm run create:linux-executable",
+    "package:macos": "npm run build:prod && npm run create:macos-executable",
+    "package:windows": "npm run build:prod && npm run create:windows-executable",
+    "create:linux-executable": "echo '#!/usr/bin/env node' > ielts-monitor && cat dist/cli/index.js >> ielts-monitor && chmod +x ielts-monitor",
+    "create:macos-executable": "echo '#!/usr/bin/env node' > ielts-monitor && cat dist/cli/index.js >> ielts-monitor && chmod +x ielts-monitor",
+    "create:windows-executable": "echo '@echo off' > ielts-monitor.bat && echo 'node \"%~dp0dist\\cli\\index.js\" %*' >> ielts-monitor.bat",
+    "package:all": "bash scripts/package.sh",
+    "install:global": "npm run build:prod && npm link",
+    "uninstall:global": "npm unlink"
+  },
+  "keywords": [
+    "ielts",
+    "appointment",
+    "monitor",
+    "notification",
+    "automation"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "dependencies": {
+    "axios": "^1.12.2",
+    "chalk": "^5.6.2",
+    "commander": "^14.0.1",
+    "fs-extra": "^11.3.1",
+    "node-notifier": "^10.0.1",
+    "puppeteer": "^24.20.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/fs-extra": "^11.0.4",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.4.0",
+    "@types/node-notifier": "^8.0.5",
+    "@types/supertest": "^6.0.3",
+    "express": "^5.1.0",
+    "jest": "^30.1.3",
+    "rimraf": "^6.0.1",
+    "supertest": "^7.1.4",
+    "ts-jest": "^29.4.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2"
+  }
+}
