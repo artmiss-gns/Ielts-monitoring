@@ -1,0 +1,91 @@
+MIT License
+
+Copyright (c) 2024 IELTS Appointment Monitor
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+## Third-Party Licenses
+
+This software includes the following third-party packages:
+
+### Production Dependencies
+
+- **chalk** (MIT License) - Terminal string styling
+- **commander** (MIT License) - Command-line interface framework
+- **fs-extra** (MIT License) - File system utilities
+- **node-notifier** (MIT License) - Cross-platform desktop notifications
+- **puppeteer** (Apache-2.0 License) - Headless Chrome automation
+
+### Development Dependencies
+
+- **TypeScript** (Apache-2.0 License) - TypeScript compiler
+- **Jest** (MIT License) - Testing framework
+- **ESLint** (MIT License) - Code linting
+- **Prettier** (MIT License) - Code formatting
+
+For complete license information of dependencies, see the respective package documentation.
+
+---
+
+## Usage Terms
+
+### Acceptable Use
+
+This software is provided for legitimate monitoring of publicly available appointment information. Users must:
+
+1. **Respect Website Terms**: Comply with the terms of service of monitored websites
+2. **Rate Limiting**: Use reasonable check intervals to avoid overwhelming servers
+3. **Legal Compliance**: Ensure usage complies with local laws and regulations
+4. **Ethical Use**: Use the software responsibly and ethically
+
+### Prohibited Use
+
+Users must NOT:
+
+1. Use the software to overwhelm or attack websites
+2. Attempt to circumvent website security measures
+3. Use the software for any illegal activities
+4. Redistribute the software with malicious modifications
+
+### Disclaimer
+
+- This software is provided for educational and personal use
+- The authors are not responsible for any misuse of the software
+- Users are responsible for ensuring their usage complies with applicable laws
+- The software is not affiliated with or endorsed by IELTS or any testing organizations
+
+### Data Privacy
+
+- The software does not collect or transmit personal data
+- All monitoring data remains local to the user's system
+- Configuration files contain only monitoring preferences
+- No user data is shared with third parties
+
+### Support and Warranty
+
+- The software is provided "as is" without warranty
+- Support is provided on a best-effort basis through the project repository
+- The authors are not liable for any damages resulting from software use
+- Users should backup their configurations and data
+
+---
+
+For questions about licensing or usage terms, please create an issue in the project repository.
