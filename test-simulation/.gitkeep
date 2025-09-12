@@ -1,0 +1,2 @@
+# This file ensures the test-simulation directory is tracked by git
+# Individual files in subdirectories will be tracked as they are created

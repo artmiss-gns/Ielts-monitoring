@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IELTS Test Simulation - Appointment Timetable</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <!-- Navigation header mimicking IELTS website -->
+    <header class="site-header">
+        <nav class="main-navigation">
+            <div class="nav-container">
+                <div class="logo">
+                    <h2>IELTS Test Center</h2>
+                </div>
+                <ul class="nav-menu">
+                    <li><a href="/">Home</a></li>
+                    <li><a href="/timetable" class="active">Timetable</a></li>
+                    <li><a href="/register">Register</a></li>
+                    <li><a href="/results">Results</a></li>
+                </ul>
+            </div>
+        </nav>
+    </header>
+
+    <!-- Main content container -->
+    <div class="container">
+        <div class="page-header">
+            <h1>IELTS Appointment Timetable - Test Simulation</h1>
+            <p class="subtitle">Available test dates and registration</p>
+        </div>
+
+        <!-- Filter section (mimicking real website) -->
+        <div class="filter-section">
+            <div class="filter-group">
+                <label for="city-filter">City:</label>
+                <select id="city-filter">
+                    <option value="">All Cities</option>
+                    <option value="isfahan" selected>Isfahan</option>
+                    <option value="tehran">Tehran</option>
+                    <option value="shiraz">Shiraz</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="exam-type-filter">Exam Type:</label>
+                <select id="exam-type-filter">
+                    <option value="">All Types</option>
+                    <option value="cdielts" selected>CDIELTS</option>
+                    <option value="ielts">IELTS</option>
+                </select>
+            </div>
+            <button id="filter-btn" class="filter-button">Apply Filters</button>
+        </div>
+
+        <!-- Appointments container with semantic structure -->
+        <div class="timetable-section">
+            <div class="section-header">
+                <h2>Available Appointments</h2>
+                <div class="refresh-info">
+                    <span id="last-updated">Last updated: <span id="update-time">Loading...</span></span>
+                    <button id="refresh-btn" class="refresh-button">Refresh</button>
+                </div>
+            </div>
+            
+            <!-- Main appointments container that the scraper will target -->
+            <div id="appointments-container" class="appointments-grid">
+                <!-- Appointment cards will be dynamically rendered here -->
+                <div class="loading-message">
+                    <p>Loading appointments...</p>
+                </div>
+            </div>
+
+            <!-- Empty state message -->
+            <div id="no-appointments" class="no-appointments" style="display: none;">
+                <div class="empty-state">
+                    <h3>No appointments available</h3>
+                    <p>There are currently no IELTS appointments available for the selected criteria.</p>
+                    <p>Please check back later or modify your search filters.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Information section -->
+        <div class="info-section">
+            <div class="info-card">
+                <h3>Test Information</h3>
+                <ul>
+                    <li><strong>Test Duration:</strong> Approximately 2 hours 45 minutes</li>
+                    <li><strong>Registration Deadline:</strong> 5 days before test date</li>
+                    <li><strong>Cancellation:</strong> Up to 5 weeks before test date</li>
+                    <li><strong>Results:</strong> Available 13 days after test date</li>
+                </ul>
+            </div>
+            
+            <div class="info-card">
+                <h3>Contact Information</h3>
+                <p><strong>Isfahan Test Center</strong></p>
+                <p>Address: Test Center Address, Isfahan</p>
+                <p>Phone: +98 31 1234 5678</p>
+                <p>Email: info@testcenter.ir</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="site-footer">
+        <div class="footer-content">
+            <p>&copy; 2024 IELTS Test Simulation Server. This is a test environment for development purposes.</p>
+            <div class="footer-links">
+                <a href="/api/appointments">API Documentation</a>
+                <a href="/health">Server Status</a>
+            </div>
+        </div>
+    </footer>
+
+    <!-- JavaScript for dynamic appointment rendering -->
+    <script src="/appointments.js"></script>
+</body>
+</html>
