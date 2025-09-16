@@ -308,14 +308,16 @@ Get current monitoring status and statistics
     console.log(`\n🔄 [${checkStartTime.toLocaleTimeString()}] Starting monitoring check #${this.currentSession.checksPerformed + 1}`);
 
     try {
-      // Fetch current appointments
+      // Fetch current appointments with enhanced status detection
       const filters = {
         city: this.config.city,
         examModel: this.config.examModel,
         months: this.config.months
       };
 
-      const currentAppointments = await this.webScraper.fetchAppointments(filters);
+      const checkResult = await this.webScraper.fetchAppointmentsWithStatus(filters);
+      const currentAppointments = checkResult.appointments;
+      
       this.emit('appointments-found', currentAppointments);
 
       // Get previous appointments for comparison
@@ -333,35 +335,53 @@ Get current monitoring status and statistics
       // Update session statistics
       this.currentSession.checksPerformed++;
       
-      // Enhanced logging for comparison results
+      // Enhanced logging for comparison results with status information
       const checkEndTime = new Date();
       const duration = checkEndTime.getTime() - checkStartTime.getTime();
       
       console.log(`✅ [${checkEndTime.toLocaleTimeString()}] Check completed in ${duration}ms`);
+      console.log(`📊 Status: ${checkResult.type} | Total: ${checkResult.appointmentCount} | Available: ${checkResult.availableCount} | Filled: ${checkResult.filledCount}`);
       
-      if (comparison.newAppointments.length > 0) {
-        console.log(`🎉 Found ${comparison.newAppointments.length} NEW appointment(s)!`);
-        comparison.newAppointments.forEach((apt, index) => {
-          console.log(`   ${index + 1}. ${apt.date} ${apt.time} - ${apt.city} (${apt.examType})`);
+      // Filter new appointments to only include truly available ones
+      const newAvailableAppointments = comparison.newAppointments.filter(apt => apt.status === 'available');
+      
+      if (newAvailableAppointments.length > 0) {
+        console.log(`🎉 Found ${newAvailableAppointments.length} NEW AVAILABLE appointment(s)!`);
+        newAvailableAppointments.forEach((apt, index) => {
+          console.log(`   ${index + 1}. ${apt.date} ${apt.time} - ${apt.city} (${apt.examType}) [${apt.status.toUpperCase()}]`);
         });
-      } else if (currentAppointments.length === 0) {
-        console.log(`📭 No appointments available - all time slots are filled`);
+      } else if (comparison.newAppointments.length > 0) {
+        const newFilledAppointments = comparison.newAppointments.filter(apt => apt.status !== 'available');
+        console.log(`📋 Found ${newFilledAppointments.length} new appointment(s) but they are filled/pending - no notification sent`);
+        newFilledAppointments.forEach((apt, index) => {
+          console.log(`   ${index + 1}. ${apt.date} ${apt.time} - ${apt.city} (${apt.examType}) [${apt.status.toUpperCase()}]`);
+        });
+      } else if (checkResult.type === 'no-slots') {
+        console.log(`📭 No appointment slots available for the selected criteria`);
+      } else if (checkResult.type === 'filled') {
+        console.log(`📋 ${currentAppointments.length} appointment(s) found but all are filled/pending`);
       } else {
-        console.log(`📋 ${currentAppointments.length} appointment(s) found (no new ones)`);
+        console.log(`📋 ${currentAppointments.length} appointment(s) found (no new available ones)`);
       }
       
       if (comparison.removedAppointments.length > 0) {
         console.log(`📤 ${comparison.removedAppointments.length} appointment(s) were removed since last check`);
       }
       
-      // Log the check
-      await this.statusLogger.logCheck(currentAppointments.length);
+      // Log the check with enhanced status information
+      await this.statusLogger.logAppointmentCheck(checkResult, duration);
       this.emit('check-completed', currentAppointments.length);
 
-      // Send notifications for new appointments
-      if (comparison.newAppointments.length > 0) {
-        await this.sendNotifications(comparison.newAppointments);
-        this.emit('new-appointments', comparison.newAppointments);
+      // Send notifications ONLY for new available appointments
+      if (newAvailableAppointments.length > 0) {
+        await this.sendNotifications(newAvailableAppointments);
+        this.emit('new-appointments', newAvailableAppointments);
+      } else if (comparison.newAppointments.length > 0) {
+        // Log when notifications are suppressed due to no available appointments
+        await this.statusLogger.logWarn('Notification suppressed: No available appointments', {
+          totalAppointments: comparison.newAppointments.length,
+          appointmentStatuses: comparison.newAppointments.map(apt => apt.status)
+        });
       }
 
       // Log next check time
@@ -377,7 +397,7 @@ Get current monitoring status and statistics
   }
 
   /**
-   * Send notifications for new appointments
+   * Send notifications for new appointments (only available ones)
    */
   private async sendNotifications(appointments: Appointment[]): Promise<void> {
     if (!this.config || !this.currentSession) {
@@ -385,8 +405,25 @@ Get current monitoring status and statistics
     }
 
     try {
+      // Double-check that we only have available appointments
+      const availableAppointments = appointments.filter(apt => apt.status === 'available');
+      
+      if (availableAppointments.length === 0) {
+        await this.statusLogger.logWarn('Notification suppressed: No available appointments', {
+          totalAppointments: appointments.length,
+          appointmentStatuses: appointments.map(apt => apt.status)
+        });
+        return;
+      }
+
+      // Log notification-worthy event
+      await this.statusLogger.logNotificationWorthyEvent(
+        availableAppointments, 
+        'new_available_appointments_detected'
+      );
+
       const notificationRecord = await this.notificationService.sendNotification(
-        appointments,
+        availableAppointments,
         this.config.notificationSettings
       );
 
@@ -394,7 +431,14 @@ Get current monitoring status and statistics
       this.currentSession.notificationsSent++;
       
       await this.statusLogger.logNotification(notificationRecord);
-      this.emit('notification-sent', appointments.length);
+      this.emit('notification-sent', availableAppointments.length);
+
+      // Log successful notification with details
+      await this.statusLogger.logInfo('Notification sent successfully', {
+        availableAppointmentCount: availableAppointments.length,
+        channels: notificationRecord.channels,
+        deliveryStatus: notificationRecord.deliveryStatus
+      });
 
     } catch (error) {
       await this.handleError(error as Error, 'Failed to send notifications');

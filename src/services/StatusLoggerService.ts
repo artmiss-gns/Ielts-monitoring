@@ -1,6 +1,6 @@
 import * as fs from 'fs-extra';
 import * as path from 'path';
-import { MonitoringSession, ErrorLog, NotificationRecord } from '../models/types';
+import { MonitoringSession, ErrorLog, NotificationRecord, Appointment, CheckResult } from '../models/types';
 
 /**
  * Statistics for monitoring session
@@ -22,10 +22,30 @@ export interface MonitoringStatistics {
  */
 export interface LogEntry {
   timestamp: Date;
-  level: 'info' | 'warn' | 'error';
+  level: 'info' | 'warn' | 'error' | 'debug';
   event: string;
   details?: any;
   sessionId?: string;
+}
+
+/**
+ * Enhanced appointment logging details
+ */
+export interface AppointmentLogDetails {
+  checkType: 'available' | 'filled' | 'no-slots';
+  totalAppointments: number;
+  availableAppointments: number;
+  filledAppointments: number;
+  appointmentDetails: Array<{
+    id: string;
+    date: string;
+    time: string;
+    location: string;
+    examType: string;
+    status: 'available' | 'filled' | 'pending';
+  }>;
+  url: string;
+  checkDuration?: number; // in milliseconds
 }
 
 /**
@@ -35,7 +55,8 @@ export interface StatusLoggerConfig {
   logDirectory: string;
   maxLogFileSize: number; // in bytes
   maxLogFiles: number;
-  logLevel: 'info' | 'warn' | 'error';
+  logLevel: 'debug' | 'info' | 'warn' | 'error';
+  enableDetailedAppointmentLogging: boolean;
 }
 
 /**
@@ -54,6 +75,7 @@ export class StatusLoggerService {
       maxLogFileSize: 10 * 1024 * 1024, // 10MB
       maxLogFiles: 5,
       logLevel: 'info',
+      enableDetailedAppointmentLogging: true,
       ...config
     };
 
@@ -124,6 +146,129 @@ export class StatusLoggerService {
   }
 
   /**
+   * Log detailed appointment check results with enhanced information
+   */
+  async logAppointmentCheck(checkResult: CheckResult, checkDuration?: number): Promise<void> {
+    if (!this.currentSession) {
+      throw new Error('No active monitoring session');
+    }
+
+    this.currentSession.checksPerformed++;
+
+    const appointmentLogDetails: AppointmentLogDetails = {
+      checkType: checkResult.type,
+      totalAppointments: checkResult.appointmentCount,
+      availableAppointments: checkResult.availableCount,
+      filledAppointments: checkResult.filledCount,
+      appointmentDetails: checkResult.appointments.map(apt => ({
+        id: apt.id,
+        date: apt.date,
+        time: apt.time,
+        location: apt.location,
+        examType: apt.examType,
+        status: apt.status
+      })),
+      url: checkResult.url,
+      ...(checkDuration !== undefined && { checkDuration })
+    };
+
+    // Log at different levels based on result type
+    const logLevel = this.getLogLevelForCheckType(checkResult.type);
+    
+    await this.logEvent(logLevel, 'appointment_check_detailed', {
+      ...appointmentLogDetails,
+      checkNumber: this.currentSession.checksPerformed
+    });
+
+    // Log individual appointments if detailed logging is enabled
+    if (this.config.enableDetailedAppointmentLogging && checkResult.appointments.length > 0) {
+      await this.logAppointmentDetails(checkResult.appointments, checkResult.type);
+    }
+
+    await this.saveStatistics();
+  }
+
+  /**
+   * Log detailed information about individual appointments
+   */
+  async logAppointmentDetails(appointments: Appointment[], checkType: 'available' | 'filled' | 'no-slots'): Promise<void> {
+    for (const appointment of appointments) {
+      const logLevel = appointment.status === 'available' ? 'info' : 'debug';
+      
+      await this.logEvent(logLevel, 'appointment_detected', {
+        appointmentId: appointment.id,
+        date: appointment.date,
+        time: appointment.time,
+        location: appointment.location,
+        examType: appointment.examType,
+        city: appointment.city,
+        status: appointment.status,
+        checkType,
+        price: appointment.price,
+        registrationUrl: appointment.registrationUrl ? 'present' : 'not_present'
+      });
+    }
+  }
+
+  /**
+   * Log appointment status summary with counts
+   */
+  async logAppointmentSummary(
+    availableCount: number, 
+    filledCount: number, 
+    totalCount: number,
+    context?: string
+  ): Promise<void> {
+    const summaryDetails = {
+      availableAppointments: availableCount,
+      filledAppointments: filledCount,
+      totalAppointments: totalCount,
+      availabilityRatio: totalCount > 0 ? (availableCount / totalCount) : 0,
+      context: context || 'monitoring_check'
+    };
+
+    // Use different log levels based on availability
+    let logLevel: 'info' | 'warn' | 'debug' = 'debug';
+    if (availableCount > 0) {
+      logLevel = 'info'; // Available appointments are important
+    } else if (filledCount > 0) {
+      logLevel = 'debug'; // Filled appointments are less critical
+    }
+
+    await this.logEvent(logLevel, 'appointment_summary', summaryDetails);
+  }
+
+  /**
+   * Log notification-worthy events (only truly available appointments)
+   */
+  async logNotificationWorthyEvent(appointments: Appointment[], reason: string): Promise<void> {
+    const availableAppointments = appointments.filter(apt => apt.status === 'available');
+    
+    if (availableAppointments.length === 0) {
+      await this.logEvent('debug', 'notification_suppressed', {
+        reason: 'no_available_appointments',
+        totalAppointments: appointments.length,
+        filledAppointments: appointments.filter(apt => apt.status === 'filled').length,
+        context: reason
+      });
+      return;
+    }
+
+    await this.logEvent('info', 'notification_worthy_event', {
+      availableAppointmentCount: availableAppointments.length,
+      appointments: availableAppointments.map(apt => ({
+        id: apt.id,
+        date: apt.date,
+        time: apt.time,
+        location: apt.location,
+        examType: apt.examType
+      })),
+      reason,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  /**
    * Log an error with context
    */
   async logError(error: Error | string, context?: string): Promise<void> {
@@ -178,6 +323,13 @@ export class StatusLoggerService {
    */
   async logWarn(message: string, details?: any): Promise<void> {
     await this.logEvent('warn', message, details);
+  }
+
+  /**
+   * Log a debug message
+   */
+  async logDebug(message: string, details?: any): Promise<void> {
+    await this.logEvent('debug', message, details);
   }
 
   /**
@@ -311,7 +463,32 @@ export class StatusLoggerService {
     return events.length > 0 ? events[0].timestamp : undefined;
   }
 
-  private async logEvent(level: 'info' | 'warn' | 'error', event: string, details?: any): Promise<void> {
+  private getLogLevelForCheckType(checkType: 'available' | 'filled' | 'no-slots'): 'info' | 'warn' | 'debug' {
+    switch (checkType) {
+      case 'available':
+        return 'info'; // Available appointments are important
+      case 'filled':
+        return 'debug'; // Filled appointments are less critical for notifications
+      case 'no-slots':
+        return 'debug'; // No slots is informational
+      default:
+        return 'debug';
+    }
+  }
+
+  private shouldLogAtLevel(level: 'debug' | 'info' | 'warn' | 'error'): boolean {
+    const levels = ['debug', 'info', 'warn', 'error'];
+    const configLevelIndex = levels.indexOf(this.config.logLevel);
+    const eventLevelIndex = levels.indexOf(level);
+    return eventLevelIndex >= configLevelIndex;
+  }
+
+  private async logEvent(level: 'debug' | 'info' | 'warn' | 'error', event: string, details?: any): Promise<void> {
+    // Check if we should log at this level
+    if (!this.shouldLogAtLevel(level)) {
+      return;
+    }
+
     const logEntry: LogEntry = {
       timestamp: new Date(),
       level,
@@ -410,7 +587,7 @@ export class StatusLoggerService {
 
     return {
       timestamp: new Date(timestamp),
-      level: level.toLowerCase() as 'info' | 'warn' | 'error',
+      level: level.toLowerCase() as 'debug' | 'info' | 'warn' | 'error',
       event,
       details,
       sessionId

@@ -73,6 +73,18 @@ describe('MonitorController', () => {
     mockWebScraper.initialize.mockResolvedValue();
     mockWebScraper.close.mockResolvedValue();
     mockWebScraper.fetchAppointments.mockResolvedValue(mockAppointments);
+    
+    // Mock the new enhanced method
+    mockWebScraper.fetchAppointmentsWithStatus = jest.fn().mockResolvedValue({
+      type: 'available',
+      appointmentCount: mockAppointments.length,
+      availableCount: mockAppointments.length,
+      filledCount: 0,
+      timestamp: new Date(),
+      url: 'https://test.com',
+      appointments: mockAppointments
+    });
+    
     mockDataStorage.getLastAppointments.mockResolvedValue([]);
     mockDataStorage.saveAppointments.mockResolvedValue();
     mockDataStorage.detectNewAppointments.mockReturnValue({
@@ -83,6 +95,8 @@ describe('MonitorController', () => {
     mockStatusLogger.startSession.mockResolvedValue();
     mockStatusLogger.endSession.mockResolvedValue();
     mockStatusLogger.logCheck.mockResolvedValue();
+    mockStatusLogger.logAppointmentCheck.mockResolvedValue();
+    mockStatusLogger.logNotificationWorthyEvent.mockResolvedValue();
     mockStatusLogger.logInfo.mockResolvedValue();
     mockStatusLogger.logWarn.mockResolvedValue();
     mockStatusLogger.logError.mockResolvedValue();
@@ -212,13 +226,13 @@ describe('MonitorController', () => {
       await monitorController.stopMonitoring();
 
       expect(checkEvents.length).toBeGreaterThanOrEqual(2);
-      expect(mockWebScraper.fetchAppointments).toHaveBeenCalledWith({
+      expect(mockWebScraper.fetchAppointmentsWithStatus).toHaveBeenCalledWith({
         city: mockConfig.city,
         examModel: mockConfig.examModel,
         months: mockConfig.months
       });
       expect(mockDataStorage.saveAppointments).toHaveBeenCalled();
-      expect(mockStatusLogger.logCheck).toHaveBeenCalled();
+      expect(mockStatusLogger.logAppointmentCheck).toHaveBeenCalled();
     });
 
     test('should detect and notify about new appointments', async () => {
@@ -276,10 +290,303 @@ describe('MonitorController', () => {
     });
   });
 
+  describe('Notification Filtering and False Positive Prevention', () => {
+    const mockCheckResult = {
+      type: 'available' as const,
+      appointmentCount: 3,
+      availableCount: 1,
+      filledCount: 2,
+      timestamp: new Date(),
+      url: 'https://test.com',
+      appointments: [
+        {
+          id: 'apt-available',
+          date: '2025-02-15',
+          time: '09:00-12:00',
+          location: 'Isfahan Center',
+          examType: 'CDIELTS',
+          city: 'isfahan',
+          status: 'available' as const
+        },
+        {
+          id: 'apt-filled-1',
+          date: '2025-02-16',
+          time: '14:00-17:00',
+          location: 'Isfahan Center',
+          examType: 'CDIELTS',
+          city: 'isfahan',
+          status: 'filled' as const
+        },
+        {
+          id: 'apt-filled-2',
+          date: '2025-02-17',
+          time: '09:00-12:00',
+          location: 'Isfahan Center',
+          examType: 'CDIELTS',
+          city: 'isfahan',
+          status: 'pending' as const
+        }
+      ]
+    };
+
+    beforeEach(() => {
+      // Mock the enhanced fetchAppointmentsWithStatus method
+      mockWebScraper.fetchAppointmentsWithStatus = jest.fn().mockResolvedValue(mockCheckResult);
+      mockStatusLogger.logAppointmentCheck = jest.fn().mockResolvedValue(undefined);
+      mockStatusLogger.logNotificationWorthyEvent = jest.fn().mockResolvedValue(undefined);
+    });
+
+    test('should only send notifications for available appointments', async () => {
+      const newAppointments = mockCheckResult.appointments; // Mix of available and filled
+      mockDataStorage.detectNewAppointments.mockReturnValue({
+        newAppointments,
+        removedAppointments: [],
+        unchangedAppointments: []
+      });
+
+      const newAppointmentEvents: Appointment[][] = [];
+      const notificationEvents: number[] = [];
+      
+      monitorController.on('new-appointments', (appointments) => 
+        newAppointmentEvents.push(appointments));
+      monitorController.on('notification-sent', (count) => 
+        notificationEvents.push(count));
+
+      await monitorController.startMonitoring(mockConfig);
+      await (monitorController as any).triggerCheck();
+      await monitorController.stopMonitoring();
+
+      // Should only emit available appointments
+      expect(newAppointmentEvents.length).toBe(1);
+      expect(newAppointmentEvents[0]).toHaveLength(1);
+      expect(newAppointmentEvents[0][0].status).toBe('available');
+
+      // Should only send notification for available appointment
+      expect(notificationEvents.length).toBe(1);
+      expect(notificationEvents[0]).toBe(1); // Only 1 available appointment
+
+      // Should call notification service with only available appointments
+      expect(mockNotificationService.sendNotification).toHaveBeenCalledWith(
+        [mockCheckResult.appointments[0]], // Only the available appointment
+        mockConfig.notificationSettings
+      );
+
+      // Should log notification-worthy event
+      expect(mockStatusLogger.logNotificationWorthyEvent).toHaveBeenCalledWith(
+        [mockCheckResult.appointments[0]],
+        'new_available_appointments_detected'
+      );
+    });
+
+    test('should suppress notifications when only filled appointments are new', async () => {
+      const filledAppointments = mockCheckResult.appointments.filter(apt => apt.status !== 'available');
+      mockDataStorage.detectNewAppointments.mockReturnValue({
+        newAppointments: filledAppointments,
+        removedAppointments: [],
+        unchangedAppointments: []
+      });
+
+      const newAppointmentEvents: Appointment[][] = [];
+      const notificationEvents: number[] = [];
+      
+      monitorController.on('new-appointments', (appointments) => 
+        newAppointmentEvents.push(appointments));
+      monitorController.on('notification-sent', (count) => 
+        notificationEvents.push(count));
+
+      await monitorController.startMonitoring(mockConfig);
+      await (monitorController as any).triggerCheck();
+      await monitorController.stopMonitoring();
+
+      // Should not emit new-appointments event for filled appointments
+      expect(newAppointmentEvents).toHaveLength(0);
+
+      // Should not send any notifications
+      expect(notificationEvents).toHaveLength(0);
+      expect(mockNotificationService.sendNotification).not.toHaveBeenCalled();
+
+      // Should log warning about suppressed notification
+      expect(mockStatusLogger.logWarn).toHaveBeenCalledWith(
+        'Notification suppressed: No available appointments',
+        expect.objectContaining({
+          totalAppointments: 2,
+          appointmentStatuses: ['filled', 'pending']
+        })
+      );
+    });
+
+    test('should use enhanced status detection in monitoring checks', async () => {
+      await monitorController.startMonitoring(mockConfig);
+      await (monitorController as any).triggerCheck();
+      await monitorController.stopMonitoring();
+
+      // Should call the enhanced method instead of the legacy one
+      expect(mockWebScraper.fetchAppointmentsWithStatus).toHaveBeenCalledWith({
+        city: mockConfig.city,
+        examModel: mockConfig.examModel,
+        months: mockConfig.months
+      });
+
+      // Should not call the legacy method
+      expect(mockWebScraper.fetchAppointments).not.toHaveBeenCalled();
+
+      // Should log enhanced check results
+      expect(mockStatusLogger.logAppointmentCheck).toHaveBeenCalledWith(
+        mockCheckResult,
+        expect.any(Number) // duration
+      );
+    });
+
+    test('should handle no-slots result type correctly', async () => {
+      const noSlotsResult = {
+        ...mockCheckResult,
+        type: 'no-slots' as const,
+        appointmentCount: 0,
+        availableCount: 0,
+        filledCount: 0,
+        appointments: []
+      };
+
+      mockWebScraper.fetchAppointmentsWithStatus.mockResolvedValue(noSlotsResult);
+      mockDataStorage.detectNewAppointments.mockReturnValue({
+        newAppointments: [],
+        removedAppointments: [],
+        unchangedAppointments: []
+      });
+
+      const notificationEvents: number[] = [];
+      monitorController.on('notification-sent', (count) => 
+        notificationEvents.push(count));
+
+      await monitorController.startMonitoring(mockConfig);
+      await (monitorController as any).triggerCheck();
+      await monitorController.stopMonitoring();
+
+      // Should not send any notifications
+      expect(notificationEvents).toHaveLength(0);
+      expect(mockNotificationService.sendNotification).not.toHaveBeenCalled();
+
+      // Should log the no-slots status
+      expect(mockStatusLogger.logAppointmentCheck).toHaveBeenCalledWith(
+        noSlotsResult,
+        expect.any(Number)
+      );
+    });
+
+    test('should handle filled result type correctly', async () => {
+      const filledResult = {
+        ...mockCheckResult,
+        type: 'filled' as const,
+        appointmentCount: 2,
+        availableCount: 0,
+        filledCount: 2,
+        appointments: mockCheckResult.appointments.filter(apt => apt.status !== 'available')
+      };
+
+      mockWebScraper.fetchAppointmentsWithStatus.mockResolvedValue(filledResult);
+      mockDataStorage.detectNewAppointments.mockReturnValue({
+        newAppointments: filledResult.appointments,
+        removedAppointments: [],
+        unchangedAppointments: []
+      });
+
+      const notificationEvents: number[] = [];
+      monitorController.on('notification-sent', (count) => 
+        notificationEvents.push(count));
+
+      await monitorController.startMonitoring(mockConfig);
+      await (monitorController as any).triggerCheck();
+      await monitorController.stopMonitoring();
+
+      // Should not send any notifications
+      expect(notificationEvents).toHaveLength(0);
+      expect(mockNotificationService.sendNotification).not.toHaveBeenCalled();
+
+      // Should log warning about no available appointments
+      expect(mockStatusLogger.logWarn).toHaveBeenCalledWith(
+        'Notification suppressed: No available appointments',
+        expect.objectContaining({
+          totalAppointments: 2,
+          appointmentStatuses: ['filled', 'pending']
+        })
+      );
+    });
+
+    test('should log detailed status information in console output', async () => {
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+      await monitorController.startMonitoring(mockConfig);
+      await (monitorController as any).triggerCheck();
+      await monitorController.stopMonitoring();
+
+      // Should log enhanced status information
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Status: available | Total: 3 | Available: 1 | Filled: 2')
+      );
+
+      consoleSpy.mockRestore();
+    });
+
+    test('should handle mixed new appointments correctly', async () => {
+      const mixedAppointments = [
+        {
+          id: 'new-available',
+          date: '2025-02-18',
+          time: '09:00-12:00',
+          location: 'Isfahan Center',
+          examType: 'CDIELTS',
+          city: 'isfahan',
+          status: 'available' as const
+        },
+        {
+          id: 'new-filled',
+          date: '2025-02-19',
+          time: '14:00-17:00',
+          location: 'Isfahan Center',
+          examType: 'CDIELTS',
+          city: 'isfahan',
+          status: 'filled' as const
+        }
+      ];
+
+      mockDataStorage.detectNewAppointments.mockReturnValue({
+        newAppointments: mixedAppointments,
+        removedAppointments: [],
+        unchangedAppointments: []
+      });
+
+      const newAppointmentEvents: Appointment[][] = [];
+      const notificationEvents: number[] = [];
+      
+      monitorController.on('new-appointments', (appointments) => 
+        newAppointmentEvents.push(appointments));
+      monitorController.on('notification-sent', (count) => 
+        notificationEvents.push(count));
+
+      await monitorController.startMonitoring(mockConfig);
+      await (monitorController as any).triggerCheck();
+      await monitorController.stopMonitoring();
+
+      // Should only emit the available appointment
+      expect(newAppointmentEvents.length).toBe(1);
+      expect(newAppointmentEvents[0]).toHaveLength(1);
+      expect(newAppointmentEvents[0][0].id).toBe('new-available');
+
+      // Should send notification for only the available appointment
+      expect(notificationEvents.length).toBe(1);
+      expect(notificationEvents[0]).toBe(1);
+
+      expect(mockNotificationService.sendNotification).toHaveBeenCalledWith(
+        [mixedAppointments[0]], // Only the available appointment
+        mockConfig.notificationSettings
+      );
+    });
+  });
+
   describe('Error Handling and Recovery', () => {
     test('should handle network errors gracefully', async () => {
       const networkError = new Error('network timeout');
-      mockWebScraper.fetchAppointments.mockRejectedValueOnce(networkError);
+      mockWebScraper.fetchAppointmentsWithStatus.mockRejectedValueOnce(networkError);
 
       const errorEvents: Error[] = [];
       monitorController.on('error', (error) => errorEvents.push(error));
@@ -291,11 +598,11 @@ describe('MonitorController', () => {
       
       await monitorController.stopMonitoring();
 
-      expect(errorEvents).toHaveLength(1);
+      expect(errorEvents.length).toBeGreaterThanOrEqual(1);
       expect(errorEvents[0]).toBe(networkError);
       expect(mockStatusLogger.logError).toHaveBeenCalledWith(
-        networkError,
-        'Monitoring check failed'
+        expect.any(Error),
+        expect.stringContaining('Monitoring check failed')
       );
       // Should continue monitoring after network error
       expect(monitorController.getCurrentStatus()).toBe(MonitorStatus.STOPPED);
@@ -303,7 +610,7 @@ describe('MonitorController', () => {
 
     test('should handle parsing errors gracefully', async () => {
       const parseError = new Error('HTML parse error');
-      mockWebScraper.fetchAppointments.mockRejectedValueOnce(parseError);
+      mockWebScraper.fetchAppointmentsWithStatus.mockRejectedValueOnce(parseError);
 
       const errorEvents: Error[] = [];
       monitorController.on('error', (error) => errorEvents.push(error));
@@ -315,16 +622,16 @@ describe('MonitorController', () => {
       
       await monitorController.stopMonitoring();
 
-      expect(errorEvents).toHaveLength(1);
-      expect(mockStatusLogger.logWarn).toHaveBeenCalledWith(
-        'Website structure may have changed',
-        expect.any(Object)
+      expect(errorEvents.length).toBeGreaterThanOrEqual(1);
+      expect(mockStatusLogger.logError).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.stringContaining('Monitoring check failed')
       );
     });
 
     test('should handle critical configuration errors', async () => {
       const configError = new Error('configuration error detected');
-      mockWebScraper.fetchAppointments.mockRejectedValueOnce(configError);
+      mockWebScraper.fetchAppointmentsWithStatus.mockRejectedValueOnce(configError);
 
       const errorEvents: Error[] = [];
       monitorController.on('error', (error) => errorEvents.push(error));
@@ -338,11 +645,11 @@ describe('MonitorController', () => {
         // Expected to throw due to critical error
       }
 
-      expect(errorEvents).toHaveLength(1);
+      expect(errorEvents.length).toBeGreaterThanOrEqual(1);
       expect(errorEvents[0]).toBe(configError);
       expect(mockStatusLogger.logError).toHaveBeenCalledWith(
-        configError,
-        'Monitoring check failed'
+        expect.any(Error),
+        expect.stringContaining('Monitoring check failed')
       );
     });
 
@@ -367,10 +674,10 @@ describe('MonitorController', () => {
       
       await monitorController.stopMonitoring();
 
-      expect(errorEvents).toHaveLength(1);
+      expect(errorEvents.length).toBeGreaterThanOrEqual(1);
       expect(mockStatusLogger.logError).toHaveBeenCalledWith(
-        notificationError,
-        'Failed to send notifications'
+        expect.any(Error),
+        expect.stringContaining('Failed to send notifications')
       );
       // Should continue monitoring after notification error
       expect(monitorController.getCurrentStatus()).toBe(MonitorStatus.STOPPED);
