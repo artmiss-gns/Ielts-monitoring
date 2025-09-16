@@ -12,9 +12,10 @@ export interface Appointment {
   location: string;
   examType: string;
   city: string;
-  status: 'available' | 'full' | 'pending';
+  status: 'available' | 'filled' | 'pending';
   price?: number;
   registrationUrl?: string;
+  rawHtml?: string; // Raw HTML for inspection purposes
 }
 
 /**
@@ -87,4 +88,29 @@ export interface AppointmentComparison {
 export interface ValidationResult {
   isValid: boolean;
   errors: string[];
+}
+
+/**
+ * Enhanced check result with detailed appointment status information
+ */
+export interface CheckResult {
+  type: 'available' | 'filled' | 'no-slots';
+  appointmentCount: number;
+  availableCount: number;
+  filledCount: number;
+  timestamp: Date;
+  url: string;
+  appointments: Appointment[];
+}
+
+/**
+ * Inspection data for debugging and verification
+ */
+export interface InspectionData {
+  url: string;
+  pageTitle: string;
+  detectedElements: string[];
+  parsingNotes: string;
+  rawAppointmentHtml: string[];
+  checkResult: CheckResult;
 }
