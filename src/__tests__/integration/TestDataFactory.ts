@@ -12,7 +12,7 @@ export class TestDataFactory {
     city?: string;
     examType?: string;
     month?: number;
-    status?: 'available' | 'full' | 'pending';
+    status?: 'available' | 'filled' | 'pending';
   }): Appointment[] {
     const appointments: Appointment[] = [];
     const baseDate = new Date('2025-02-01');
