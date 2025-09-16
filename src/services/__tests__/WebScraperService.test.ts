@@ -24,6 +24,8 @@ describe('WebScraperService', () => {
     mockPage = {
       setUserAgent: jest.fn(),
       setViewport: jest.fn(),
+      setDefaultTimeout: jest.fn(),
+      setDefaultNavigationTimeout: jest.fn(),
       goto: jest.fn(),
       waitForSelector: jest.fn(),
       evaluate: jest.fn(),
@@ -53,7 +55,7 @@ describe('WebScraperService', () => {
       };
 
       const url = webScraperService.buildRequestUrl(filters);
-      expect(url).toBe('https://irsafam.org/ielts-timetable');
+      expect(url).toBe('https://irsafam.org/ielts/timetable');
     });
 
     it('should build URL with city filters', () => {
@@ -64,7 +66,7 @@ describe('WebScraperService', () => {
       };
 
       const url = webScraperService.buildRequestUrl(filters);
-      expect(url).toBe('https://irsafam.org/ielts-timetable?city%5B%5D=isfahan&city%5B%5D=tehran');
+      expect(url).toBe('https://irsafam.org/ielts/timetable?city%5B%5D=isfahan&city%5B%5D=tehran');
     });
 
     it('should build URL with exam model filters', () => {
@@ -75,7 +77,7 @@ describe('WebScraperService', () => {
       };
 
       const url = webScraperService.buildRequestUrl(filters);
-      expect(url).toBe('https://irsafam.org/ielts-timetable?exam_model%5B%5D=cdielts');
+      expect(url).toBe('https://irsafam.org/ielts/timetable?exam_model%5B%5D=cdielts');
     });
 
     it('should build URL with month filters', () => {
@@ -86,7 +88,7 @@ describe('WebScraperService', () => {
       };
 
       const url = webScraperService.buildRequestUrl(filters);
-      expect(url).toBe('https://irsafam.org/ielts-timetable?month%5B%5D=12&month%5B%5D=1&month%5B%5D=2');
+      expect(url).toBe('https://irsafam.org/ielts/timetable?month%5B%5D=12&month%5B%5D=1&month%5B%5D=2');
     });
 
     it('should build URL with all filters', () => {
@@ -97,7 +99,7 @@ describe('WebScraperService', () => {
       };
 
       const url = webScraperService.buildRequestUrl(filters);
-      expect(url).toBe('https://irsafam.org/ielts-timetable?city%5B%5D=isfahan&exam_model%5B%5D=cdielts&month%5B%5D=12');
+      expect(url).toBe('https://irsafam.org/ielts/timetable?city%5B%5D=isfahan&exam_model%5B%5D=cdielts&month%5B%5D=12');
     });
   });
 
@@ -130,7 +132,7 @@ describe('WebScraperService', () => {
       expect(mockPage.setUserAgent).toHaveBeenCalled();
       expect(mockPage.setViewport).toHaveBeenCalledWith({ width: 1366, height: 768 });
       expect(mockPage.goto).toHaveBeenCalledWith(
-        'https://irsafam.org/ielts-timetable?city%5B%5D=isfahan&exam_model%5B%5D=cdielts&month%5B%5D=2',
+        'https://irsafam.org/ielts/timetable?city%5B%5D=isfahan&exam_model%5B%5D=cdielts&month%5B%5D=2',
         { waitUntil: 'networkidle2', timeout: 30000 }
       );
       expect(mockPage.close).toHaveBeenCalled();
@@ -261,7 +263,7 @@ describe('WebScraperService', () => {
           location: 'Tehran Center',
           examType: 'IELTS',
           city: 'Tehran',
-          status: 'full',
+          status: 'filled',
           price: undefined,
           registrationUrl: undefined
         }
@@ -292,7 +294,7 @@ describe('WebScraperService', () => {
         location: 'Tehran Center',
         examType: 'IELTS',
         city: 'Tehran',
-        status: 'full'
+        status: 'filled'
       });
     });
 
@@ -428,4 +430,505 @@ describe('WebScraperService', () => {
       expect(mockPage.close).toHaveBeenCalled();
     });
   });
-});
+
+  describe('Enhanced Status Detection', () => {
+    describe('fetchAppointmentsWithStatus', () => {
+      it('should detect available appointments', async () => {
+        const mockCheckResult = {
+          type: 'available',
+          appointmentCount: 2,
+          availableCount: 2,
+          filledCount: 0,
+          appointments: [
+            {
+              id: 'appointment-1',
+              date: '2025-02-15',
+              time: '09:00-12:00',
+              location: 'Isfahan Center',
+              examType: 'CDIELTS',
+              city: 'Isfahan',
+              status: 'available',
+              rawHtml: '<div class="appointment-card">Available slot</div>'
+            },
+            {
+              id: 'appointment-2',
+              date: '2025-02-16',
+              time: '14:00-17:00',
+              location: 'Tehran Center',
+              examType: 'IELTS',
+              city: 'Tehran',
+              status: 'available',
+              rawHtml: '<div class="appointment-card">Open for registration</div>'
+            }
+          ],
+          inspectionData: {
+            detectedElements: ['Found elements with selector: .appointment-card'],
+            parsingNotes: ['Found registration button/link - marking as available'],
+            rawAppointmentHtml: ['<div class="appointment-card">Available slot</div>']
+          }
+        };
+
+        mockPage.evaluate.mockResolvedValue(mockCheckResult);
+
+        const filters: ScrapingFilters = {
+          city: ['isfahan', 'tehran'],
+          examModel: ['cdielts', 'ielts'],
+          months: [2]
+        };
+
+        const result = await webScraperService.fetchAppointmentsWithStatus(filters);
+
+        expect(result.type).toBe('available');
+        expect(result.appointmentCount).toBe(2);
+        expect(result.availableCount).toBe(2);
+        expect(result.filledCount).toBe(0);
+        expect(result.appointments).toHaveLength(2);
+        expect(result.appointments[0].rawHtml).toBeDefined();
+      });
+
+      it('should detect filled appointments with Persian text', async () => {
+        const mockCheckResult = {
+          type: 'filled',
+          appointmentCount: 1,
+          availableCount: 0,
+          filledCount: 1,
+          appointments: [
+            {
+              id: 'appointment-1',
+              date: '2025-02-15',
+              time: '09:00-12:00',
+              location: 'Isfahan Center',
+              examType: 'CDIELTS',
+              city: 'Isfahan',
+              status: 'filled',
+              rawHtml: '<div class="appointment-card">تکمیل ظرفیت</div>'
+            }
+          ],
+          inspectionData: {
+            detectedElements: ['Found elements with selector: .appointment-card'],
+            parsingNotes: ['Found Persian filled indicator: تکمیل ظرفیت'],
+            rawAppointmentHtml: ['<div class="appointment-card">تکمیل ظرفیت</div>']
+          }
+        };
+
+        mockPage.evaluate.mockResolvedValue(mockCheckResult);
+
+        const filters: ScrapingFilters = {
+          city: ['isfahan'],
+          examModel: ['cdielts'],
+          months: [2]
+        };
+
+        const result = await webScraperService.fetchAppointmentsWithStatus(filters);
+
+        expect(result.type).toBe('filled');
+        expect(result.appointmentCount).toBe(1);
+        expect(result.availableCount).toBe(0);
+        expect(result.filledCount).toBe(1);
+        expect(result.appointments[0].status).toBe('filled');
+        expect(result.appointments[0].rawHtml).toContain('تکمیل ظرفیت');
+      });
+
+      it('should detect filled appointments with English text', async () => {
+        const mockCheckResult = {
+          type: 'filled',
+          appointmentCount: 2,
+          availableCount: 0,
+          filledCount: 2,
+          appointments: [
+            {
+              id: 'appointment-1',
+              date: '2025-02-15',
+              time: '09:00-12:00',
+              location: 'Isfahan Center',
+              examType: 'CDIELTS',
+              city: 'Isfahan',
+              status: 'filled',
+              rawHtml: '<div class="appointment-card">FULL</div>'
+            },
+            {
+              id: 'appointment-2',
+              date: '2025-02-16',
+              time: '14:00-17:00',
+              location: 'Tehran Center',
+              examType: 'IELTS',
+              city: 'Tehran',
+              status: 'filled',
+              rawHtml: '<div class="appointment-card">Capacity Full</div>'
+            }
+          ],
+          inspectionData: {
+            detectedElements: ['Found elements with selector: .appointment-card'],
+            parsingNotes: ['Found English filled indicator'],
+            rawAppointmentHtml: ['<div class="appointment-card">FULL</div>']
+          }
+        };
+
+        mockPage.evaluate.mockResolvedValue(mockCheckResult);
+
+        const filters: ScrapingFilters = {
+          city: ['isfahan', 'tehran'],
+          examModel: ['cdielts', 'ielts'],
+          months: [2]
+        };
+
+        const result = await webScraperService.fetchAppointmentsWithStatus(filters);
+
+        expect(result.type).toBe('filled');
+        expect(result.filledCount).toBe(2);
+        expect(result.appointments.every(apt => apt.status === 'filled')).toBe(true);
+      });
+
+      it('should detect no-slots scenario with Persian text', async () => {
+        const mockCheckResult = {
+          type: 'no-slots',
+          appointmentCount: 0,
+          availableCount: 0,
+          filledCount: 0,
+          appointments: [],
+          inspectionData: {
+            detectedElements: ['Total elements found: 0'],
+            parsingNotes: ['Found Persian no-appointments indicator'],
+            rawAppointmentHtml: []
+          }
+        };
+
+        mockPage.evaluate.mockResolvedValue(mockCheckResult);
+
+        const filters: ScrapingFilters = {
+          city: ['isfahan'],
+          examModel: ['cdielts'],
+          months: [2]
+        };
+
+        const result = await webScraperService.fetchAppointmentsWithStatus(filters);
+
+        expect(result.type).toBe('no-slots');
+        expect(result.appointmentCount).toBe(0);
+        expect(result.availableCount).toBe(0);
+        expect(result.filledCount).toBe(0);
+        expect(result.appointments).toHaveLength(0);
+      });
+
+      it('should detect no-slots scenario with English text', async () => {
+        const mockCheckResult = {
+          type: 'no-slots',
+          appointmentCount: 0,
+          availableCount: 0,
+          filledCount: 0,
+          appointments: [],
+          inspectionData: {
+            detectedElements: ['Total elements found: 0'],
+            parsingNotes: ['Found English no-appointments indicator'],
+            rawAppointmentHtml: []
+          }
+        };
+
+        mockPage.evaluate.mockResolvedValue(mockCheckResult);
+
+        const filters: ScrapingFilters = {
+          city: ['isfahan'],
+          examModel: ['cdielts'],
+          months: [2]
+        };
+
+        const result = await webScraperService.fetchAppointmentsWithStatus(filters);
+
+        expect(result.type).toBe('no-slots');
+        expect(result.appointmentCount).toBe(0);
+        expect(result.appointments).toHaveLength(0);
+      });
+
+      it('should detect mixed status appointments', async () => {
+        const mockCheckResult = {
+          type: 'available',
+          appointmentCount: 3,
+          availableCount: 1,
+          filledCount: 2,
+          appointments: [
+            {
+              id: 'appointment-1',
+              date: '2025-02-15',
+              time: '09:00-12:00',
+              location: 'Isfahan Center',
+              examType: 'CDIELTS',
+              city: 'Isfahan',
+              status: 'available',
+              rawHtml: '<div class="appointment-card">Available</div>'
+            },
+            {
+              id: 'appointment-2',
+              date: '2025-02-16',
+              time: '14:00-17:00',
+              location: 'Tehran Center',
+              examType: 'IELTS',
+              city: 'Tehran',
+              status: 'filled',
+              rawHtml: '<div class="appointment-card">تکمیل ظرفیت</div>'
+            },
+            {
+              id: 'appointment-3',
+              date: '2025-02-17',
+              time: '10:00-13:00',
+              location: 'Shiraz Center',
+              examType: 'IELTS',
+              city: 'Shiraz',
+              status: 'pending',
+              rawHtml: '<div class="appointment-card">Pending</div>'
+            }
+          ],
+          inspectionData: {
+            detectedElements: ['Found elements with selector: .appointment-card'],
+            parsingNotes: ['Status summary: available=1, filled=1, pending=1'],
+            rawAppointmentHtml: ['<div class="appointment-card">Available</div>']
+          }
+        };
+
+        mockPage.evaluate.mockResolvedValue(mockCheckResult);
+
+        const filters: ScrapingFilters = {
+          city: ['isfahan', 'tehran', 'shiraz'],
+          examModel: ['cdielts', 'ielts'],
+          months: [2]
+        };
+
+        const result = await webScraperService.fetchAppointmentsWithStatus(filters);
+
+        expect(result.type).toBe('available');
+        expect(result.appointmentCount).toBe(3);
+        expect(result.availableCount).toBe(1);
+        expect(result.filledCount).toBe(2); // filled + pending
+        expect(result.appointments).toHaveLength(3);
+        
+        const statusCounts = result.appointments.reduce((acc, apt) => {
+          acc[apt.status] = (acc[apt.status] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>);
+        
+        expect(statusCounts.available).toBe(1);
+        expect(statusCounts.filled).toBe(1);
+        expect(statusCounts.pending).toBe(1);
+      });
+
+      it('should handle raw HTML capture for inspection', async () => {
+        const mockCheckResult = {
+          type: 'available',
+          appointmentCount: 1,
+          availableCount: 1,
+          filledCount: 0,
+          appointments: [
+            {
+              id: 'appointment-1',
+              date: '2025-02-15',
+              time: '09:00-12:00',
+              location: 'Isfahan Center',
+              examType: 'CDIELTS',
+              city: 'Isfahan',
+              status: 'available',
+              rawHtml: '<div class="appointment-card"><h3>IELTS Exam</h3><p>Date: 2025-02-15</p><button>Register</button></div>'
+            }
+          ],
+          inspectionData: {
+            detectedElements: ['Found elements with selector: .appointment-card'],
+            parsingNotes: ['Found registration button/link - marking as available'],
+            rawAppointmentHtml: ['<div class="appointment-card"><h3>IELTS Exam</h3><p>Date: 2025-02-15</p><button>Register</button></div>']
+          }
+        };
+
+        mockPage.evaluate.mockResolvedValue(mockCheckResult);
+
+        const filters: ScrapingFilters = {
+          city: ['isfahan'],
+          examModel: ['cdielts'],
+          months: [2]
+        };
+
+        const result = await webScraperService.fetchAppointmentsWithStatus(filters);
+
+        expect(result.appointments[0].rawHtml).toBeDefined();
+        expect(result.appointments[0].rawHtml).toContain('<button>Register</button>');
+        expect(result.appointments[0].rawHtml).toContain('Date: 2025-02-15');
+      });
+
+      it('should retry on failure with enhanced status detection', async () => {
+        const mockCheckResult = {
+          type: 'available',
+          appointmentCount: 1,
+          availableCount: 1,
+          filledCount: 0,
+          appointments: [
+            {
+              id: 'appointment-1',
+              date: '2025-02-15',
+              time: '09:00-12:00',
+              location: 'Isfahan Center',
+              examType: 'CDIELTS',
+              city: 'Isfahan',
+              status: 'available',
+              rawHtml: '<div class="appointment-card">Available</div>'
+            }
+          ],
+          inspectionData: {
+            detectedElements: ['Found elements with selector: .appointment-card'],
+            parsingNotes: ['Found registration button/link - marking as available'],
+            rawAppointmentHtml: ['<div class="appointment-card">Available</div>']
+          }
+        };
+
+        // First call fails, second succeeds
+        mockPage.goto
+          .mockRejectedValueOnce(new Error('Network error'))
+          .mockResolvedValueOnce(undefined);
+        
+        mockPage.evaluate.mockResolvedValue(mockCheckResult);
+
+        const filters: ScrapingFilters = {
+          city: ['isfahan'],
+          examModel: ['cdielts'],
+          months: [2]
+        };
+
+        const result = await webScraperService.fetchAppointmentsWithStatus(filters);
+
+        expect(result.type).toBe('available');
+        expect(result.appointmentCount).toBe(1);
+        expect(mockBrowser.newPage).toHaveBeenCalledTimes(2);
+      });
+
+      it('should throw error after max retries with enhanced status detection', async () => {
+        mockPage.goto.mockRejectedValue(new Error('Persistent network error'));
+
+        const filters: ScrapingFilters = {
+          city: ['isfahan'],
+          examModel: ['cdielts'],
+          months: [2]
+        };
+
+        await expect(webScraperService.fetchAppointmentsWithStatus(filters)).rejects.toThrow(
+          'Failed to fetch appointments with status after 4 attempts'
+        );
+
+        expect(mockBrowser.newPage).toHaveBeenCalledTimes(4);
+      });
+    });
+
+    describe('Status Detection Logic', () => {
+      it('should prioritize Persian filled indicators', async () => {
+        const mockCheckResult = {
+          type: 'filled',
+          appointmentCount: 1,
+          availableCount: 0,
+          filledCount: 1,
+          appointments: [
+            {
+              id: 'appointment-1',
+              date: '2025-02-15',
+              time: '09:00-12:00',
+              location: 'Isfahan Center',
+              examType: 'CDIELTS',
+              city: 'Isfahan',
+              status: 'filled',
+              rawHtml: '<div class="appointment-card">تکمیل ظرفیت - Full capacity</div>'
+            }
+          ],
+          inspectionData: {
+            detectedElements: ['Found elements with selector: .appointment-card'],
+            parsingNotes: ['Found Persian filled indicator: تکمیل ظرفیت'],
+            rawAppointmentHtml: ['<div class="appointment-card">تکمیل ظرفیت - Full capacity</div>']
+          }
+        };
+
+        mockPage.evaluate.mockResolvedValue(mockCheckResult);
+
+        const filters: ScrapingFilters = {
+          city: ['isfahan'],
+          examModel: ['cdielts'],
+          months: [2]
+        };
+
+        const result = await webScraperService.fetchAppointmentsWithStatus(filters);
+
+        expect(result.appointments[0].status).toBe('filled');
+        expect(result.appointments[0].rawHtml).toContain('تکمیل ظرفیت');
+      });
+
+      it('should detect registration buttons as available indicators', async () => {
+        const mockCheckResult = {
+          type: 'available',
+          appointmentCount: 1,
+          availableCount: 1,
+          filledCount: 0,
+          appointments: [
+            {
+              id: 'appointment-1',
+              date: '2025-02-15',
+              time: '09:00-12:00',
+              location: 'Isfahan Center',
+              examType: 'CDIELTS',
+              city: 'Isfahan',
+              status: 'available',
+              rawHtml: '<div class="appointment-card"><button class="btn register">Register Now</button></div>'
+            }
+          ],
+          inspectionData: {
+            detectedElements: ['Found elements with selector: .appointment-card'],
+            parsingNotes: ['Found registration button/link - marking as available'],
+            rawAppointmentHtml: ['<div class="appointment-card"><button class="btn register">Register Now</button></div>']
+          }
+        };
+
+        mockPage.evaluate.mockResolvedValue(mockCheckResult);
+
+        const filters: ScrapingFilters = {
+          city: ['isfahan'],
+          examModel: ['cdielts'],
+          months: [2]
+        };
+
+        const result = await webScraperService.fetchAppointmentsWithStatus(filters);
+
+        expect(result.appointments[0].status).toBe('available');
+        expect(result.appointments[0].rawHtml).toContain('Register Now');
+      });
+
+      it('should handle pending status correctly', async () => {
+        const mockCheckResult = {
+          type: 'filled',
+          appointmentCount: 1,
+          availableCount: 0,
+          filledCount: 1,
+          appointments: [
+            {
+              id: 'appointment-1',
+              date: '2025-02-15',
+              time: '09:00-12:00',
+              location: 'Isfahan Center',
+              examType: 'CDIELTS',
+              city: 'Isfahan',
+              status: 'pending',
+              rawHtml: '<div class="appointment-card">در انتظار - Waiting</div>'
+            }
+          ],
+          inspectionData: {
+            detectedElements: ['Found elements with selector: .appointment-card'],
+            parsingNotes: ['Found pending/waiting indicator'],
+            rawAppointmentHtml: ['<div class="appointment-card">در انتظار - Waiting</div>']
+          }
+        };
+
+        mockPage.evaluate.mockResolvedValue(mockCheckResult);
+
+        const filters: ScrapingFilters = {
+          city: ['isfahan'],
+          examModel: ['cdielts'],
+          months: [2]
+        };
+
+        const result = await webScraperService.fetchAppointmentsWithStatus(filters);
+
+        expect(result.appointments[0].status).toBe('pending');
+        expect(result.filledCount).toBe(1); // pending counts as filled for overall status
+        expect(result.type).toBe('filled');
+      });
+    });
+  });});
