@@ -119,6 +119,24 @@ program
     }
   });
 
+// Inspect command
+program
+  .command('inspect')
+  .description('Display latest parsed appointment data for inspection and debugging')
+  .option('-d, --detailed', 'show detailed inspection output with raw HTML analysis')
+  .option('-e, --export <file>', 'export inspection data to file (use "console" to output to terminal)')
+  .option('-f, --format <format>', 'export format: json, text, or csv', 'json')
+  .option('-l, --limit <number>', 'limit number of records to export')
+  .option('-i, --id <id>', 'show specific inspection record by ID')
+  .action(async (options) => {
+    try {
+      await cliController.inspectCommand(options);
+    } catch (error) {
+      console.error(chalk.red('Error inspecting data:'), error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
 // Global error handlers for CLI
 process.on('uncaughtException', (error) => {
   console.error(chalk.red('💥 Uncaught Exception:'), error.message);

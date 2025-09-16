@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import { MonitorController, MonitorStatus } from '../services/MonitorController';
 import { ConfigurationManager } from '../services/ConfigurationManager';
+import { DataInspectionService } from '../services/DataInspectionService';
 // import { StatusLoggerService } from '../services/StatusLoggerService'; // TODO: Import when needed
 import { InteractiveConfigPrompts } from './InteractiveConfigPrompts';
 import { StatusDisplay } from './StatusDisplay';
@@ -13,6 +14,7 @@ import { MonitorConfig } from '../models/types';
 export class CLIController {
   private monitorController: MonitorController;
   private configManager: ConfigurationManager;
+  private dataInspectionService: DataInspectionService;
   // private statusLogger: StatusLoggerService; // TODO: Use for advanced logging features
   private interactivePrompts: InteractiveConfigPrompts;
   private statusDisplay: StatusDisplay;
@@ -21,6 +23,7 @@ export class CLIController {
   constructor() {
     this.monitorController = new MonitorController();
     this.configManager = new ConfigurationManager();
+    this.dataInspectionService = new DataInspectionService();
     // this.statusLogger = new StatusLoggerService(); // TODO: Initialize when needed
     this.interactivePrompts = new InteractiveConfigPrompts();
     this.statusDisplay = new StatusDisplay();
@@ -249,6 +252,105 @@ export class CLIController {
       }
     } catch (error) {
       throw new Error(`Failed to view logs: ${error instanceof Error ? error.message : error}`);
+    }
+  }
+
+  /**
+   * Handle inspect command - display latest parsed appointment data
+   */
+  async inspectCommand(options: { 
+    detailed?: boolean; 
+    export?: string; 
+    format?: 'json' | 'text' | 'csv';
+    limit?: string;
+    id?: string;
+  }): Promise<void> {
+    console.log(chalk.blue('🔍 IELTS Appointment Data Inspection\n'));
+
+    try {
+      if (options.export) {
+        // Export inspection data
+        const format = options.format || 'json';
+        const limit = options.limit ? parseInt(options.limit, 10) : undefined;
+        
+        console.log(chalk.blue(`📤 Exporting inspection data in ${format.toUpperCase()} format...`));
+        
+        const exportData = await this.dataInspectionService.exportInspectionData(format, limit);
+        
+        // Write to file or output to console
+        if (options.export === 'console') {
+          console.log('\n' + chalk.gray('='.repeat(50)));
+          console.log(exportData);
+          console.log(chalk.gray('='.repeat(50)));
+        } else {
+          const fs = await import('fs/promises');
+          await fs.writeFile(options.export, exportData, 'utf-8');
+          console.log(chalk.green(`✅ Inspection data exported to: ${options.export}`));
+        }
+        return;
+      }
+
+      if (options.id) {
+        // Show specific inspection record by ID
+        const record = await this.dataInspectionService.getInspectionDataById(options.id);
+        
+        if (!record) {
+          console.log(chalk.yellow(`⚠️  No inspection record found with ID: ${options.id}`));
+          return;
+        }
+
+        if (options.detailed) {
+          const detailedOutput = await this.dataInspectionService.createDetailedInspectionOutput(record);
+          console.log(detailedOutput);
+        } else {
+          const summary = this.dataInspectionService.formatInspectionSummary(record);
+          console.log(summary);
+        }
+        return;
+      }
+
+      // Show latest inspection data
+      const latestRecord = await this.dataInspectionService.getLatestInspectionData();
+      
+      if (!latestRecord) {
+        console.log(chalk.yellow('⚠️  No inspection data available'));
+        console.log(chalk.gray('Run the monitor at least once to generate inspection data'));
+        return;
+      }
+
+      console.log(chalk.green('✅ Latest inspection data found\n'));
+
+      if (options.detailed) {
+        const detailedOutput = await this.dataInspectionService.createDetailedInspectionOutput(latestRecord);
+        console.log(detailedOutput);
+      } else {
+        const summary = this.dataInspectionService.formatInspectionSummary(latestRecord);
+        console.log(summary);
+      }
+
+      // Show inspection statistics
+      console.log(chalk.blue('\n📊 Inspection Statistics:'));
+      const stats = await this.dataInspectionService.getInspectionStats();
+      console.log(chalk.gray('─'.repeat(40)));
+      console.log(`${chalk.cyan('Total Records:')} ${stats.totalRecords}`);
+      if (stats.latestInspection) {
+        console.log(`${chalk.cyan('Latest Inspection:')} ${new Date(stats.latestInspection).toLocaleString()}`);
+      }
+      if (stats.oldestInspection) {
+        console.log(`${chalk.cyan('Oldest Inspection:')} ${new Date(stats.oldestInspection).toLocaleString()}`);
+      }
+      console.log(`${chalk.cyan('Avg Appointments/Check:')} ${stats.averageAppointmentsPerCheck}`);
+      console.log(`${chalk.cyan('Availability Rate:')} ${stats.availabilityRate}%`);
+      console.log(chalk.gray('─'.repeat(40)));
+
+      // Show usage hints
+      console.log(chalk.gray('\n💡 Usage hints:'));
+      console.log(chalk.gray('  • Use --detailed for comprehensive analysis'));
+      console.log(chalk.gray('  • Use --export <file> to save data'));
+      console.log(chalk.gray('  • Use --id <inspection-id> to view specific record'));
+
+    } catch (error) {
+      throw new Error(`Failed to inspect data: ${error instanceof Error ? error.message : error}`);
     }
   }
 
