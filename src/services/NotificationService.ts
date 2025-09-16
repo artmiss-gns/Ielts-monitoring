@@ -27,6 +27,13 @@ export class NotificationService {
       logFile: boolean;
     }
   ): Promise<NotificationRecord> {
+    // Check for available appointments upfront
+    const availableAppointments = appointments.filter(apt => apt.status === 'available');
+    
+    if (availableAppointments.length === 0) {
+      throw new Error('No available appointments to notify about');
+    }
+
     const record: NotificationRecord = {
       timestamp: new Date(),
       appointmentCount: appointments.length,
@@ -132,16 +139,25 @@ export class NotificationService {
    */
   private async sendDesktopNotification(appointments: Appointment[]): Promise<void> {
     return new Promise((resolve, reject) => {
-      const appointmentText = appointments.length === 1 
-        ? `New appointment available: ${appointments[0].date} at ${appointments[0].time}`
-        : `${appointments.length} new appointments available`;
+      // Filter to only show available appointments in notifications
+      const availableAppointments = appointments.filter(apt => apt.status === 'available');
+      
+      if (availableAppointments.length === 0) {
+        // This shouldn't happen with the new filtering logic, but handle it gracefully
+        reject(new Error('No available appointments to notify about'));
+        return;
+      }
 
-      const message = appointments.length <= 3 
-        ? appointments.map(apt => `${apt.date} at ${apt.time} (${apt.location})`).join('\n')
+      const appointmentText = availableAppointments.length === 1 
+        ? `New AVAILABLE appointment: ${availableAppointments[0].date} at ${availableAppointments[0].time}`
+        : `${availableAppointments.length} new AVAILABLE appointments`;
+
+      const message = availableAppointments.length <= 3 
+        ? availableAppointments.map(apt => `${apt.date} at ${apt.time} (${apt.location}) - AVAILABLE`).join('\n')
         : `${appointmentText}\nCheck the application for details`;
 
       notifier.notify({
-        title: 'IELTS Appointments Available!',
+        title: 'IELTS Appointments Available for Booking!',
         message,
         sound: true,
         wait: false,
@@ -199,17 +215,23 @@ export class NotificationService {
    */
   private async logNotification(appointments: Appointment[]): Promise<void> {
     const timestamp = new Date().toISOString();
+    
+    // Filter to only log available appointments
+    const availableAppointments = appointments.filter(apt => apt.status === 'available');
+    
     const logEntry = {
       timestamp,
-      event: 'NEW_APPOINTMENTS_FOUND',
-      count: appointments.length,
-      appointments: appointments.map(apt => ({
+      event: 'NEW_AVAILABLE_APPOINTMENTS_FOUND',
+      count: availableAppointments.length,
+      totalCount: appointments.length,
+      appointments: availableAppointments.map(apt => ({
         id: apt.id,
         date: apt.date,
         time: apt.time,
         location: apt.location,
         examType: apt.examType,
-        city: apt.city
+        city: apt.city,
+        status: apt.status
       }))
     };
 
