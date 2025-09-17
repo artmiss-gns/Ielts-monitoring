@@ -13,6 +13,10 @@ Never miss an IELTS appointment again! This tool continuously monitors the irsaf
 - 📊 **Status Tracking**: Real-time monitoring statistics and history
 - 🛡️ **Error Recovery**: Robust error handling with automatic retry mechanisms
 - ⚙️ **Configurable**: Flexible configuration options for personalized monitoring
+- 🔍 **Enhanced Inspection**: Detailed appointment data analysis and debugging tools *(NEW!)*
+- 📈 **Performance Monitoring**: Track parsing performance and system efficiency *(NEW!)*
+- 📤 **Data Export**: Export inspection data in JSON, CSV, and text formats *(NEW!)*
+- 🌐 **Multi-language Support**: Handles Persian and English content seamlessly *(NEW!)*
 
 ## 🚀 Quick Start
 
@@ -82,6 +86,50 @@ npm install -g ielts-appointment-monitor-1.0.0.tgz
    ielts-monitor status
    ```
 
+4. **Inspect monitoring results:** *(NEW!)*
+   ```bash
+   ielts-monitor inspect --detailed
+   ```
+
+### Example Enhanced Monitoring Session
+
+```bash
+# Start monitoring
+$ ielts-monitor start
+🚀 Starting IELTS Appointment Monitor...
+✅ Monitor started successfully!
+
+# Real-time output shows enhanced parsing
+📊 [6:56:26 PM] Enhanced scraping result:
+   Type: no-slots
+   Total appointments: 0
+   Available: 0
+   Filled/Pending: 0
+   Status: No appointment slots available
+
+# Inspect detailed results
+$ ielts-monitor inspect --detailed
+🔍 IELTS Appointment Data Inspection
+
+DETAILED INSPECTION REPORT
+==================================================
+Inspection ID: inspection_1758122786837_4e1d2df7p
+URL: https://irsafam.org/ielts/timetable?city[]=isfahan
+Page Title: ثبت‌نام آزمون آیلتس | زمان‌بندی و مراکز برگزاری در ایران
+
+CHECK RESULTS SUMMARY
+-------------------------
+Result Type: no-slots
+Total Appointments Found: 0
+Available for Booking: 0
+Filled/Unavailable: 0
+
+PARSING ANALYSIS
+-------------------------
+Found Persian no-appointments indicator
+==================================================
+```
+
 ## 📖 Usage
 
 ### Basic Commands
@@ -98,6 +146,9 @@ ielts-monitor status
 
 # View logs
 ielts-monitor logs
+
+# Inspect latest appointment data (NEW!)
+ielts-monitor inspect
 
 # Stop monitoring
 ielts-monitor stop
@@ -124,6 +175,12 @@ ielts-monitor logs --follow
 
 # Get status as JSON
 ielts-monitor status --json
+
+# Enhanced inspection commands (NEW!)
+ielts-monitor inspect --detailed                    # Detailed inspection report
+ielts-monitor inspect --export data.json --format json  # Export to JSON
+ielts-monitor inspect --export data.csv --format csv    # Export to CSV
+ielts-monitor inspect --id inspection_123456789         # View specific inspection
 ```
 
 ## ⚙️ Configuration
@@ -181,6 +238,81 @@ The CLI provides live updates with colored output:
 - 🔴 **Red**: Errors, stopped status
 - 🔵 **Blue**: Information messages
 - ⚪ **Gray**: Timestamps and secondary info
+
+### 🔍 Enhanced Inspection System *(NEW!)*
+
+The enhanced inspection system provides detailed analysis of appointment data and website parsing results:
+
+#### Inspection Commands
+
+```bash
+# View latest inspection data
+ielts-monitor inspect
+
+# Get detailed inspection report
+ielts-monitor inspect --detailed
+
+# Export inspection data
+ielts-monitor inspect --export appointments.json --format json
+ielts-monitor inspect --export appointments.csv --format csv
+ielts-monitor inspect --export appointments.txt --format text
+
+# View specific inspection by ID
+ielts-monitor inspect --id inspection_1234567890_abc123
+
+# Export with limits
+ielts-monitor inspect --export recent.json --format json --limit 10
+```
+
+#### What Inspection Data Includes
+
+- **Website Response Analysis**: Page title, URL, and response status
+- **Appointment Breakdown**: Total, available, and filled appointment counts
+- **Raw HTML Snippets**: Original website HTML for debugging
+- **Parsing Notes**: Detailed analysis of parsing process
+- **Performance Metrics**: Response times and parsing efficiency
+- **Element Detection**: Key page elements identified during parsing
+- **Statistics**: Availability rates and historical trends
+
+#### Example Inspection Output
+
+```
+DETAILED INSPECTION REPORT
+==================================================
+
+Inspection ID: inspection_1758122786837_4e1d2df7p
+Timestamp: 9/17/2025, 6:56:26 PM
+URL: https://irsafam.org/ielts/timetable?city[]=isfahan&exam_model[]=cdielts
+Page Title: ثبت‌نام آزمون آیلتس | زمان‌بندی و مراکز برگزاری در ایران
+
+CHECK RESULTS SUMMARY
+-------------------------
+Result Type: no-slots
+Total Appointments Found: 0
+Available for Booking: 0
+Filled/Unavailable: 0
+Check Timestamp: 9/17/2025, 6:56:26 PM
+
+PARSING ANALYSIS
+-------------------------
+Found Persian no-appointments indicator
+
+APPOINTMENT BREAKDOWN
+-------------------------
+No appointments found for the specified criteria
+
+==================================================
+```
+
+#### Inspection Statistics
+
+The system tracks comprehensive statistics:
+
+- **Total Records**: Number of inspection records stored
+- **Latest/Oldest Inspection**: Timestamp range of collected data
+- **Average Appointments per Check**: Historical appointment availability
+- **Availability Rate**: Percentage of appointments that were available
+- **Performance Metrics**: Average response times and parsing efficiency
 
 ### Notification Channels
 
@@ -285,13 +417,42 @@ ielts-monitor --help
 # Command-specific help
 ielts-monitor start --help
 ielts-monitor configure --help
+ielts-monitor inspect --help
 
 # Check logs for detailed error information
 ielts-monitor logs --lines 100
 
 # View current status
 ielts-monitor status
+
+# Inspect latest parsing results for debugging
+ielts-monitor inspect --detailed
 ```
+
+### 🔍 Debugging with Inspection Data
+
+The enhanced inspection system helps troubleshoot monitoring issues:
+
+```bash
+# Check if website parsing is working correctly
+ielts-monitor inspect --detailed
+
+# Export inspection data for analysis
+ielts-monitor inspect --export debug.json --format json
+
+# View parsing statistics
+ielts-monitor inspect  # Shows statistics at the bottom
+
+# Check specific inspection record
+ielts-monitor inspect --id <inspection-id>
+```
+
+**Common Debugging Scenarios:**
+
+1. **No appointments detected**: Check inspection data to see if website structure changed
+2. **Parsing errors**: Review raw HTML snippets in detailed inspection report
+3. **Performance issues**: Check response times in inspection statistics
+4. **Language detection**: Verify Persian/English content handling in parsing notes
 
 ### Debug Mode
 
@@ -313,6 +474,18 @@ The application maintains comprehensive logs:
 - **Error Logs**: `logs/errors.log` - Error details and stack traces  
 - **Statistics**: `logs/statistics.json` - Monitoring statistics
 - **Notifications**: Embedded in monitor logs with timestamps
+- **Inspection Data**: `data/inspection-data.json` - Detailed parsing results and debugging information *(NEW!)*
+
+### Enhanced Logging Features *(NEW!)*
+
+The enhanced monitoring system provides detailed logging:
+
+- **Real-time Parsing Results**: Live updates on appointment detection
+- **Performance Metrics**: Response times and parsing efficiency
+- **Website Structure Analysis**: Detected page elements and parsing notes
+- **Raw HTML Collection**: Original website content for debugging
+- **Multi-language Content**: Proper handling of Persian and English text
+- **Statistics Tracking**: Historical availability rates and trends
 
 ## 🔒 Privacy & Security
 
@@ -335,14 +508,22 @@ The application maintains comprehensive logs:
 
 MIT License - see [LICENSE](LICENSE) file for details.
 
+## 📚 Documentation
+
+- **[Enhanced Features Guide](docs/ENHANCED_FEATURES.md)** - Detailed guide for inspection system and advanced features *(NEW!)*
+- **[CLI Usage Guide](docs/CLI_USAGE.md)** - Complete command-line interface reference
+- **[Configuration Guide](docs/CONFIGURATION.md)** - Advanced configuration options
+- **[Troubleshooting Guide](docs/TROUBLESHOOTING.md)** - Common issues and solutions
+
 ## 🆘 Support
 
 If you encounter issues or have questions:
 
 1. Check the [troubleshooting section](#-troubleshooting)
-2. Review the [CLI usage guide](docs/CLI_USAGE.md)
-3. Check existing issues in the repository
-4. Create a new issue with detailed information
+2. Review the [Enhanced Features Guide](docs/ENHANCED_FEATURES.md) for inspection and debugging
+3. Review the [CLI usage guide](docs/CLI_USAGE.md)
+4. Check existing issues in the repository
+5. Create a new issue with detailed information
 
 ## 🎯 Roadmap
 
