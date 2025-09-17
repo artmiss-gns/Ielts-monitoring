@@ -13,9 +13,11 @@ This feature will create an automated monitoring system for IELTS exam appointme
 #### Acceptance Criteria
 
 1. WHEN the system starts monitoring THEN it SHALL check the irsafam.org IELTS timetable page every 30 seconds for new appointments
-2. WHEN new appointments are detected THEN the system SHALL send an immediate notification to the user
+2. WHEN truly available appointments are detected (not filled slots) THEN the system SHALL send an immediate notification to the user
 3. WHEN the system encounters network errors THEN it SHALL retry the request after 60 seconds and log the error
 4. IF the website structure changes THEN the system SHALL handle parsing errors gracefully and notify the user of the issue
+5. WHEN appointments are filled (showing "تکمیل ظرفیت" status) THEN the system SHALL NOT send notifications but SHALL log them as filled slots
+6. WHEN no appointment slots exist for a month THEN the system SHALL log this as "no slots available" and NOT send notifications
 
 ### Requirement 2
 
@@ -46,9 +48,11 @@ This feature will create an automated monitoring system for IELTS exam appointme
 #### Acceptance Criteria
 
 1. WHEN the system is running THEN it SHALL display current monitoring status (active/paused/stopped)
-2. WHEN appointments are checked THEN the system SHALL log the timestamp and number of appointments found
+2. WHEN appointments are checked THEN the system SHALL log the timestamp, appointment type (available/filled/none), and detailed appointment data
 3. WHEN the system runs THEN it SHALL maintain a history of all notifications sent
 4. WHEN requested THEN the system SHALL display statistics about monitoring sessions (uptime, checks performed, notifications sent)
+5. WHEN appointments are detected THEN the system SHALL log the specific appointment status (available for booking, filled, or no slots)
+6. WHEN logging appointment data THEN the system SHALL include appointment details (date, time, exam type, status) for verification
 
 ### Requirement 5
 
@@ -60,3 +64,17 @@ This feature will create an automated monitoring system for IELTS exam appointme
 2. WHEN monitoring is active THEN the system SHALL provide a way to pause monitoring temporarily
 3. WHEN the user requests to stop THEN the system SHALL gracefully shut down and save current state
 4. WHEN resuming from pause THEN the system SHALL continue monitoring with the same configuration
+
+### Requirement 6
+
+**User Story:** As a developer/user, I want to inspect the raw appointment data being detected, so that I can verify the system is correctly parsing and categorizing appointments.
+
+#### Acceptance Criteria
+
+1. WHEN the system detects appointments THEN it SHALL save detailed appointment data to a separate inspection file
+2. WHEN requested THEN the system SHALL provide a CLI command to display the latest parsed appointment data
+3. WHEN appointments are parsed THEN the system SHALL categorize them as: available, filled, or no-slots-available
+4. WHEN displaying inspection data THEN the system SHALL show appointment details including status, date, time, and raw HTML elements for verification
+5. WHEN multiple appointment types are found THEN the system SHALL clearly distinguish between available slots and filled slots in the inspection output
+
+Consider git and correct commits and using the correct branches throughout the project

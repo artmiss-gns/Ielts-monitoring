@@ -102,3 +102,49 @@
   - Add developer documentation for code structure and extension points
   - Package application for easy distribution and installation
   - _Requirements: Support for user adoption and maintenance_
+
+- [x] 13. Enhance appointment status detection and parsing
+  - Modify web scraper to distinguish between available, filled, and no-slots states
+  - Add Persian text detection for "تکمیل ظرفیت" (capacity filled) status indicators
+  - Implement logic to detect when no appointment slots exist vs when slots are filled
+  - Update appointment parsing to capture raw HTML elements for inspection
+  - Create appointment categorization logic (available vs filled appointments)
+  - Write unit tests for enhanced status detection with mock HTML responses
+  - _Requirements: 1.2, 1.5, 1.6, 6.3_
+
+- [x] 14. Implement enhanced logging system with appointment details
+  - Update Status Logger Service to log detailed appointment information
+  - Add logging for appointment types (available/filled/none) with counts
+  - Implement structured logging with appointment details (date, time, status)
+  - Create log formatting for better readability of appointment data
+  - Add logging levels to separate notification-worthy events from informational logs
+  - Write tests for enhanced logging functionality
+  - _Requirements: 4.2, 4.5, 4.6_
+
+- [x] 15. Create data inspection service and CLI commands
+  - Implement Data Inspection Service class for raw data examination
+  - Add methods to save and retrieve inspection data with raw HTML snippets
+  - Create CLI command to display latest parsed appointment data
+  - Implement inspection data formatting for clear status categorization
+  - Add inspection file management with automatic cleanup of old data
+  - Create detailed inspection output showing parsing results and raw elements
+  - Write integration tests for inspection functionality
+  - _Requirements: 6.1, 6.2, 6.4, 6.5_
+
+- [x] 16. Update notification logic to prevent false positives
+  - Modify notification triggers to only alert on truly available appointments
+  - Update Monitor Controller to use enhanced appointment status detection
+  - Implement logic to suppress notifications for filled appointments
+  - Add notification filtering based on appointment availability status
+  - Update notification messages to include appointment status details
+  - Write tests for notification filtering and false positive prevention
+  - _Requirements: 1.2, 1.5, 1.6, 3.1_
+
+- [x] 17. Integration testing for enhanced monitoring system
+  - Create integration tests for the complete enhanced monitoring workflow
+  - Test appointment status detection with various website response scenarios
+  - Verify inspection data accuracy and CLI command functionality
+  - Test notification filtering with mixed available/filled appointment scenarios
+  - Validate enhanced logging output and data inspection capabilities
+  - Add performance tests for the updated parsing and logging systems
+  - _Requirements: All enhanced requirements validation_

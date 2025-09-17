@@ -21,12 +21,12 @@ The application follows a modular architecture with clear separation of concerns
                     │  (Main orchestrator)    │
                     └─────────────┬───────────┘
                                   │
-          ┌───────────────────────┼───────────────────────┐
-          │                       │                       │
-┌─────────┴───────┐    ┌─────────┴───────┐    ┌─────────┴───────┐
-│  Web Scraper    │    │  Data Storage   │    │  Status Logger  │
-│   Service       │    │    Service      │    │    Service      │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
+          ┌───────────────────────┼───────────────────────┬───────────────────────┐
+          │                       │                       │                       │
+┌─────────┴───────┐    ┌─────────┴───────┐    ┌─────────┴───────┐    ┌─────────┴───────┐
+│  Web Scraper    │    │  Data Storage   │    │  Status Logger  │    │ Data Inspection │
+│   Service       │    │    Service      │    │    Service      │    │    Service      │
+└─────────────────┘    └─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
 
 ## Components and Interfaces
@@ -51,6 +51,12 @@ The application follows a modular architecture with clear separation of concerns
 - Implements retry logic with exponential backoff for network failures
 - Handles anti-bot measures with random delays and user-agent rotation
 - Parses appointment cards to extract: date, time, location, availability status
+- Distinguishes between three appointment states:
+  - **Available**: Slots open for booking (clickable registration buttons)
+  - **Filled**: Slots exist but are full (showing "تکمیل ظرفیت" status)
+  - **No Slots**: No appointment slots available for the selected criteria
+- Implements enhanced parsing logic to detect Persian text indicators for appointment status
+- Saves raw HTML snippets for inspection and debugging purposes
 
 ### 3. Data Storage Service
 **Purpose:** Manages appointment data persistence and comparison
@@ -64,6 +70,12 @@ The application follows a modular architecture with clear separation of concerns
 ```json
 {
   "timestamp": "2025-01-15T10:30:00Z",
+  "checkResult": {
+    "type": "available" | "filled" | "no-slots",
+    "appointmentCount": 5,
+    "availableCount": 2,
+    "filledCount": 3
+  },
   "appointments": [
     {
       "id": "unique-appointment-id",
@@ -71,9 +83,16 @@ The application follows a modular architecture with clear separation of concerns
       "time": "09:00-12:00",
       "location": "Isfahan Center",
       "examType": "CDIELTS",
-      "status": "available"
+      "status": "available" | "filled",
+      "rawHtml": "<div class='appointment-card'>...</div>"
     }
-  ]
+  ],
+  "inspectionData": {
+    "url": "https://irsafam.org/ielts/timetable?city%5B%5D=isfahan&model%5B%5D=cdielts&month%5B%5D=10",
+    "pageTitle": "IELTS Timetable",
+    "detectedElements": ["appointment cards", "status indicators"],
+    "parsingNotes": "Found 3 filled appointments, 2 available"
+  }
 }
 ```
 
@@ -115,10 +134,25 @@ The application follows a modular architecture with clear separation of concerns
 ### 6. Status Logger Service
 **Purpose:** Tracks monitoring statistics and system health
 **Key Methods:**
-- `logCheck(appointmentCount)` - Records each monitoring check
+- `logCheck(checkResult)` - Records each monitoring check with detailed results
 - `logError(error)` - Records errors with context
 - `getStatistics()` - Returns monitoring statistics
 - `exportLogs(format)` - Exports logs in specified format
+- `logAppointmentDetails(appointments)` - Logs detailed appointment information for verification
+
+### 7. Data Inspection Service
+**Purpose:** Provides detailed inspection of parsed appointment data
+**Key Methods:**
+- `saveInspectionData(data)` - Saves raw parsing data for inspection
+- `getLatestInspectionData()` - Returns the most recent parsing results
+- `displayInspectionSummary()` - Shows formatted summary of detected appointments
+- `exportInspectionData(format)` - Exports inspection data in various formats
+
+**Inspection Features:**
+- Saves raw HTML snippets of appointment elements
+- Categorizes appointments by status (available/filled/none)
+- Provides detailed parsing logs for troubleshooting
+- Offers CLI command to view latest inspection results
 
 ## Data Models
 
@@ -131,9 +165,27 @@ interface Appointment {
   location: string;
   examType: string;
   city: string;
-  status: 'available' | 'full' | 'pending';
+  status: 'available' | 'filled';
   price?: number;
   registrationUrl?: string;
+  rawHtml?: string; // For inspection purposes
+}
+
+interface CheckResult {
+  type: 'available' | 'filled' | 'no-slots';
+  appointmentCount: number;
+  availableCount: number;
+  filledCount: number;
+  timestamp: Date;
+  url: string;
+}
+
+interface InspectionData {
+  url: string;
+  pageTitle: string;
+  detectedElements: string[];
+  parsingNotes: string;
+  rawAppointmentHtml: string[];
 }
 ```
 
