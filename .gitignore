@@ -55,3 +55,16 @@ Thumbs.db
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Sensitive configuration files
+config/monitor-config.json
+config/telegram-config.json
+config/server-config.json
+config/*.secret.json
+config/*.private.json
+
+# API keys and tokens
+*.key
+*.pem
+*.p12
+*.pfx
