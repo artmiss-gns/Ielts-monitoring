@@ -1,0 +1,8 @@
+{
+  "botToken": "your_bot_token_from_botfather",
+  "chatId": "your_chat_id_here",
+  "messageFormat": "detailed",
+  "enablePreview": false,
+  "retryAttempts": 3,
+  "retryDelay": 1000
+}
