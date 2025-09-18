@@ -42,7 +42,7 @@ export interface AppointmentLogDetails {
     time: string;
     location: string;
     examType: string;
-    status: 'available' | 'filled' | 'pending';
+    status: 'available' | 'filled' | 'pending' | 'not-registerable' | 'unknown';
   }>;
   url: string;
   checkDuration?: number; // in milliseconds

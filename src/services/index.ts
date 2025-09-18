@@ -6,6 +6,8 @@ export { StatusLoggerService } from './StatusLoggerService';
 export { MonitorController, MonitorStatus } from './MonitorController';
 export { ErrorHandlerService, ErrorType, ErrorSeverity } from './ErrorHandlerService';
 export { DataInspectionService } from './DataInspectionService';
+export { TelegramNotifier } from './TelegramNotifier';
+export { EnvironmentConfigManager } from './EnvironmentConfigManager';
 export type { ScrapingFilters, RetryConfig } from './WebScraperService';
 export type { AppointmentSnapshot, DataStorageConfig } from './DataStorageService';
 export type { MonitoringStatistics, LogEntry, StatusLoggerConfig } from './StatusLoggerService';

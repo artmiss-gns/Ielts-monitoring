@@ -94,8 +94,9 @@ export class WebScraperService {
 
   /**
    * Build request URL with query parameters for filters
+   * Note: The website only accepts one month at a time, so this builds URL for single combinations
    */
-  buildRequestUrl(filters: ScrapingFilters): string {
+  buildRequestUrl(filters: ScrapingFilters, specificMonth?: number): string {
     const params = new URLSearchParams();
 
     // Add city filters
@@ -105,22 +106,42 @@ export class WebScraperService {
       });
     }
 
-    // Add exam model filters
+    // Add exam model filters (corrected parameter name from exam_model to model)
     if (filters.examModel && filters.examModel.length > 0) {
       filters.examModel.forEach(model => {
-        params.append('exam_model[]', model.toLowerCase());
+        params.append('model[]', model.toLowerCase());
       });
     }
 
-    // Add month filters
-    if (filters.months && filters.months.length > 0) {
-      filters.months.forEach(month => {
-        params.append('month[]', month.toString());
-      });
+    // Add month filter (only one month at a time)
+    if (specificMonth) {
+      params.append('month[]', specificMonth.toString());
+    } else if (filters.months && filters.months.length > 0) {
+      // Use the first month if no specific month is provided
+      params.append('month[]', filters.months[0].toString());
     }
 
     const queryString = params.toString();
     return queryString ? `${this.baseUrl}?${queryString}` : this.baseUrl;
+  }
+
+  /**
+   * Build multiple URLs for each month combination since website only accepts one month at a time
+   */
+  buildRequestUrls(filters: ScrapingFilters): string[] {
+    const urls: string[] = [];
+    
+    if (filters.months && filters.months.length > 0) {
+      filters.months.forEach(month => {
+        const url = this.buildRequestUrl(filters, month);
+        urls.push(url);
+      });
+    } else {
+      // If no months specified, use the base URL
+      urls.push(this.buildRequestUrl(filters));
+    }
+    
+    return urls;
   }
 
   /**
@@ -221,12 +242,10 @@ export class WebScraperService {
 
   /**
    * Enhanced method to fetch appointments with detailed status detection
+   * Handles multiple months by making separate requests for each month
    */
   async fetchAppointmentsWithStatus(filters: ScrapingFilters): Promise<CheckResult> {
-    const url = this.buildRequestUrl(filters);
-    
     console.log(`🔍 Starting enhanced scrape operation:`);
-    console.log(`   URL: ${url}`);
     console.log(`   Filters: Cities=[${filters.city.join(', ')}], Models=[${filters.examModel.join(', ')}], Months=[${filters.months.join(', ')}]`);
     
     // Check if we're using a test server (localhost)
@@ -234,59 +253,109 @@ export class WebScraperService {
       return this.fetchAppointmentsWithStatusFromAPI(filters);
     }
 
-    let lastError: Error | null = null;
-    
-    for (let attempt = 0; attempt <= this.retryConfig.maxRetries; attempt++) {
-      try {
-        await this.initialize();
-        
-        const checkResult = await this.scrapeAppointmentsWithStatusFromUrl(url);
-        
-        this.logEnhancedScrapingResults(checkResult, attempt);
-        
-        if (attempt > 0) {
-          console.log(`✅ Enhanced scraping succeeded after ${attempt + 1} attempts`);
-        }
-        
-        return checkResult;
-      } catch (error) {
-        lastError = error as Error;
-        
-        if ((error as Error).message.includes('Browser not initialized') || 
-            (error as Error).message.includes('Target closed') ||
-            (error as Error).message.includes('Session closed')) {
-          try {
-            await this.close();
-          } catch (closeError) {
-            // Ignore close errors
-          }
-        }
-        
-        const isNetworkError = this.isNetworkError(error as Error);
-        const isTimeoutError = this.isTimeoutError(error as Error);
-        const isParsingError = this.isParsingError(error as Error);
-        
-        if (attempt < this.retryConfig.maxRetries) {
-          let delay = this.retryConfig.baseDelay * Math.pow(2, attempt);
+    // Build URLs for each month (since website only accepts one month at a time)
+    const urls = this.buildRequestUrls(filters);
+    console.log(`🔍 Will check ${urls.length} URL(s) (one per month):`);
+    urls.forEach((url, index) => {
+      console.log(`   ${index + 1}. ${url}`);
+    });
+
+    let allAppointments: Appointment[] = [];
+    let totalAvailable = 0;
+    let totalFilled = 0;
+    let hasAnySlots = false;
+
+    // Process each URL (month) separately
+    for (let urlIndex = 0; urlIndex < urls.length; urlIndex++) {
+      const url = urls[urlIndex];
+      const monthNumber = filters.months[urlIndex];
+      const monthName = this.getMonthName(monthNumber);
+      
+      console.log(`\n🔍 Checking ${monthName} (${urlIndex + 1}/${urls.length})...`);
+      
+      for (let attempt = 0; attempt <= this.retryConfig.maxRetries; attempt++) {
+        try {
+          await this.initialize();
           
-          if (isNetworkError || isTimeoutError) {
-            delay = Math.min(delay, this.retryConfig.maxDelay);
-          } else if (isParsingError) {
-            delay = Math.min(delay * 2, 30000);
+          const checkResult = await this.scrapeAppointmentsWithStatusFromUrl(url);
+          
+          // Merge results
+          allAppointments = allAppointments.concat(checkResult.appointments);
+          totalAvailable += checkResult.availableCount;
+          totalFilled += checkResult.filledCount;
+          
+          if (checkResult.appointmentCount > 0) {
+            hasAnySlots = true;
           }
           
-          console.log(`🔄 Enhanced scraping attempt ${attempt + 1} failed (${this.getErrorType(error as Error)}), retrying in ${delay}ms...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-        } else {
-          console.error(`❌ All enhanced scraping attempts failed. Error type: ${this.getErrorType(error as Error)}`);
+          console.log(`   ✅ ${monthName}: ${checkResult.appointmentCount} appointments (${checkResult.availableCount} available, ${checkResult.filledCount} filled)`);
+          
+          if (attempt > 0) {
+            console.log(`   ✅ Succeeded after ${attempt + 1} attempts`);
+          }
+          
+          break; // Success, move to next URL
+          
+        } catch (error) {
+          
+          if ((error as Error).message.includes('Browser not initialized') || 
+              (error as Error).message.includes('Target closed') ||
+              (error as Error).message.includes('Session closed')) {
+            try {
+              await this.close();
+            } catch (closeError) {
+              // Ignore close errors
+            }
+          }
+          
+          const isNetworkError = this.isNetworkError(error as Error);
+          const isTimeoutError = this.isTimeoutError(error as Error);
+          const isParsingError = this.isParsingError(error as Error);
+          
+          if (attempt < this.retryConfig.maxRetries) {
+            let delay = this.retryConfig.baseDelay * Math.pow(2, attempt);
+            
+            if (isNetworkError || isTimeoutError) {
+              delay = Math.min(delay, this.retryConfig.maxDelay);
+            } else if (isParsingError) {
+              delay = Math.min(delay * 2, 30000);
+            }
+            
+            console.log(`   🔄 ${monthName} attempt ${attempt + 1} failed (${this.getErrorType(error as Error)}), retrying in ${delay}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          } else {
+            console.error(`   ❌ ${monthName} failed after all attempts. Error type: ${this.getErrorType(error as Error)}`);
+            // Continue with other months even if one fails
+          }
         }
       }
     }
+
+    // Create combined result
+    const combinedResult: CheckResult = {
+      type: hasAnySlots ? (totalAvailable > 0 ? 'available' : 'filled') : 'no-slots',
+      appointmentCount: allAppointments.length,
+      availableCount: totalAvailable,
+      filledCount: totalFilled,
+      timestamp: new Date(),
+      url: urls.length === 1 ? urls[0] : `${this.baseUrl} (${urls.length} requests)`,
+      appointments: allAppointments
+    };
+
+    this.logEnhancedScrapingResults(combinedResult, 0);
     
-    const enhancedErrorMessage = `Failed to fetch appointments with status after ${this.retryConfig.maxRetries + 1} attempts. ` +
-      `Error type: ${this.getErrorType(lastError!)}. Last error: ${lastError?.message}`;
-    
-    throw new Error(enhancedErrorMessage);
+    return combinedResult;
+  }
+
+  /**
+   * Get month name from number
+   */
+  private getMonthName(month: number): string {
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    return months[month - 1] || `Month ${month}`;
   }
 
   /**
@@ -488,7 +557,32 @@ export class WebScraperService {
         return 'IELTS';
       };
 
-      const extractCity = (text) => {
+      const extractCity = (text, element) => {
+        // First try to extract from h5 tag (IELTS-specific structure)
+        const h5Element = element ? element.querySelector('h5') : null;
+        if (h5Element) {
+          const h5Text = h5Element.textContent || '';
+          const cities = ['isfahan', 'tehran', 'shiraz', 'mashhad', 'tabriz', 'اصفهان', 'تهران', 'شیراز', 'مشهد', 'تبریز'];
+          const lowerH5Text = h5Text.toLowerCase();
+          
+          for (const city of cities) {
+            if (lowerH5Text.includes(city.toLowerCase())) {
+              // Map Persian city names to English
+              const cityMap = {
+                'اصفهان': 'Isfahan',
+                'تهران': 'Tehran', 
+                'شیراز': 'Shiraz',
+                'مشهد': 'Mashhad',
+                'تبریز': 'Tabriz'
+              };
+              const mappedCity = cityMap[city] || city.charAt(0).toUpperCase() + city.slice(1);
+              inspectionData.parsingNotes.push('Extracted city from h5 element: ' + mappedCity);
+              return mappedCity;
+            }
+          }
+        }
+        
+        // Fallback to text matching
         const cities = ['isfahan', 'tehran', 'shiraz', 'mashhad', 'tabriz'];
         const lowerText = text.toLowerCase();
         
@@ -500,59 +594,153 @@ export class WebScraperService {
         return 'Isfahan';
       };
 
-      // Enhanced status detection with Persian text support
+      // Enhanced status detection with IELTS-specific class and Persian text support
       const detectAppointmentStatus = (element) => {
         const text = element.textContent || '';
         const html = element.innerHTML || '';
+        const lowerText = text.toLowerCase();
+        const classList = element.classList || [];
+        const classNames = Array.from(classList).join(' ');
+        
+        // IELTS-specific class detection (highest priority)
+        if (classList.contains('disabled')) {
+          inspectionData.parsingNotes.push('Found disabled class - marking as filled');
+          return 'filled';
+        }
+        
+        if (classList.contains('enabled') || classList.contains('available')) {
+          inspectionData.parsingNotes.push('Found enabled/available class - marking as available');
+          return 'available';
+        }
+        
+        // Enhanced: Check for near-full class (indicates available with limited capacity)
+        if (classList.contains('near-full')) {
+          inspectionData.parsingNotes.push('Found near-full class - marking as available (limited capacity)');
+          return 'available';
+        }
         
         // Check for Persian "تکمیل ظرفیت" (capacity filled) indicators
         if (text.includes('تکمیل ظرفیت') || 
             text.includes('تکمیل') || 
-            html.includes('تکمیل ظرفیت')) {
-          inspectionData.parsingNotes.push('Found Persian filled indicator: تکمیل ظرفیت');
+            html.includes('تکمیل ظرفیت') ||
+            text.includes('پر شده') ||
+            text.includes('بسته شده')) {
+          inspectionData.parsingNotes.push('Found Persian filled indicator: تکمیل ظرفیت or similar');
           return 'filled';
         }
         
         // Check for English filled indicators
-        if (text.toLowerCase().includes('full') || 
-            text.toLowerCase().includes('closed') ||
-            text.toLowerCase().includes('filled') ||
-            text.toLowerCase().includes('capacity full')) {
+        if (lowerText.includes('full') || 
+            lowerText.includes('closed') ||
+            lowerText.includes('filled') ||
+            lowerText.includes('capacity full') ||
+            lowerText.includes('sold out') ||
+            lowerText.includes('booked') ||
+            lowerText.includes('unavailable')) {
           inspectionData.parsingNotes.push('Found English filled indicator');
           return 'filled';
         }
         
+        // Check for not-registerable status (different from filled)
+        if (lowerText.includes('not registerable') ||
+            lowerText.includes('registration closed') ||
+            lowerText.includes('expired') ||
+            text.includes('قابل ثبت نام نیست') ||
+            text.includes('مهلت ثبت نام گذشته')) {
+          inspectionData.parsingNotes.push('Found not-registerable indicator');
+          return 'not-registerable';
+        }
+        
         // Check for pending/waiting status
-        if (text.toLowerCase().includes('pending') || 
-            text.toLowerCase().includes('waiting') ||
-            text.includes('در انتظار')) {
+        if (lowerText.includes('pending') || 
+            lowerText.includes('waiting') ||
+            lowerText.includes('in progress') ||
+            text.includes('در انتظار') ||
+            text.includes('در حال بررسی')) {
           inspectionData.parsingNotes.push('Found pending/waiting indicator');
           return 'pending';
         }
         
         // Check for available indicators (registration buttons, links, etc.)
-        const hasRegistrationButton = element.querySelector('button, .btn, .register, .book') !== null;
-        const hasRegistrationLink = element.querySelector('a[href*="register"], a[href*="book"]') !== null;
+        const hasRegistrationButton = element.querySelector('button:not([disabled]), .btn:not([disabled]):not(.disable), .register:not([disabled]), .book:not([disabled])') !== null;
+        const hasRegistrationLink = element.querySelector('a[href*="register"], a[href*="book"], a[href*="signup"]') !== null;
+        const hasAvailableText = lowerText.includes('available') || 
+                                lowerText.includes('register now') ||
+                                lowerText.includes('book now') ||
+                                text.includes('قابل ثبت نام') ||
+                                text.includes('ثبت نام');
         
-        if (hasRegistrationButton || hasRegistrationLink) {
-          inspectionData.parsingNotes.push('Found registration button/link - marking as available');
+        // Enhanced: Check for onclick attribute (indicates clickable/bookable appointment)
+        const hasOnclickAttribute = element.hasAttribute('onclick');
+        
+        // Enhanced: Check for "رزرو" (Reserve) button text
+        const hasReserveButton = text.includes('رزرو');
+        
+        if (hasRegistrationButton || hasRegistrationLink || hasAvailableText || hasOnclickAttribute || hasReserveButton) {
+          if (hasOnclickAttribute) {
+            inspectionData.parsingNotes.push('Found onclick attribute - marking as available');
+          } else if (hasReserveButton) {
+            inspectionData.parsingNotes.push('Found رزرو (Reserve) button - marking as available');
+          } else {
+            inspectionData.parsingNotes.push('Found registration button/link/text - marking as available');
+          }
           return 'available';
         }
         
-        // Default to available if we can't determine status but have appointment data
+        // Check for disabled buttons or inactive elements (suggests filled)
+        const hasDisabledButton = element.querySelector('button[disabled], .btn[disabled], .disabled, .btn.disable') !== null;
+        if (hasDisabledButton) {
+          inspectionData.parsingNotes.push('Found disabled button - marking as filled');
+          return 'filled';
+        }
+        
+        // Enhanced date/time detection with status inference
         const hasDateInfo = /\\d{4}-\\d{2}-\\d{2}|\\d{2}\\/\\d{2}\\/\\d{4}/.test(text);
         const hasTimeInfo = /\\d{1,2}:\\d{2}/.test(text);
         
         if (hasDateInfo && hasTimeInfo) {
-          inspectionData.parsingNotes.push('Has date/time info but unclear status - defaulting to available');
+          // If we have appointment data but no clear status indicators,
+          // look for contextual clues in the surrounding elements
+          const parentElement = element.parentElement;
+          const siblingElements = parentElement ? Array.from(parentElement.children) : [];
+          
+          // Check siblings for status indicators
+          for (const sibling of siblingElements) {
+            const siblingText = sibling.textContent?.toLowerCase() || '';
+            if (siblingText.includes('full') || siblingText.includes('تکمیل')) {
+              inspectionData.parsingNotes.push('Found filled indicator in sibling element');
+              return 'filled';
+            }
+            if (siblingText.includes('available') || siblingText.includes('قابل ثبت نام')) {
+              inspectionData.parsingNotes.push('Found available indicator in sibling element');
+              return 'available';
+            }
+          }
+          
+          // Default to available if we have appointment data but no negative indicators
+          inspectionData.parsingNotes.push('Has date/time info with no negative indicators - defaulting to available');
           return 'available';
         }
         
+        inspectionData.parsingNotes.push('Could not determine status - marking as unknown');
         return 'unknown';
       };
 
-      const extractPrice = (text) => {
-        const priceMatch = text.match(/(\\d+(?:,\\d{3})*)\\s*(?:toman|rial|$)/i);
+      const extractPrice = (text, element) => {
+        // First try to extract from h6 tag (IELTS-specific structure)
+        const h6Element = element ? element.querySelector('h6') : null;
+        if (h6Element) {
+          const h6Text = h6Element.textContent || '';
+          const priceMatch = h6Text.match(/(\\d+(?:,\\d{3})*)\\s*(?:ریال|تومان|toman|rial|$)/i);
+          if (priceMatch) {
+            const price = parseInt(priceMatch[1].replace(/,/g, ''));
+            inspectionData.parsingNotes.push('Extracted price from h6 element: ' + price);
+            return price;
+          }
+        }
+        
+        // Fallback to text matching
+        const priceMatch = text.match(/(\\d+(?:,\\d{3})*)\\s*(?:ریال|تومان|toman|rial|$)/i);
         if (priceMatch) {
           return parseInt(priceMatch[1].replace(/,/g, ''));
         }
@@ -577,25 +765,87 @@ export class WebScraperService {
         // Store raw HTML for inspection
         inspectionData.rawAppointmentHtml.push(rawHtml);
         
-        const dateMatch = textContent.match(/(\\d{4}-\\d{2}-\\d{2}|\\d{2}\\/\\d{2}\\/\\d{4})/);
-        const timeMatch = textContent.match(/(\\d{1,2}:\\d{2}(?:\\s*-\\s*\\d{1,2}:\\d{2})?)/);
+        // Enhanced date extraction for IELTS-specific structure
+        let extractedDate = '';
+        let extractedTime = '';
+        
+        // Try to extract date from <time><date><span> structure first
+        const timeElement = element.querySelector('time date span');
+        if (timeElement) {
+          const dateSpans = element.querySelectorAll('time date span');
+          if (dateSpans.length >= 2) {
+            const dayMonth = dateSpans[0].textContent?.trim() || '';
+            const year = dateSpans[1].textContent?.trim() || '';
+            
+            // Parse "27 Oct" format
+            const dayMonthMatch = dayMonth.match(/(\\d{1,2})\\s+(\\w{3})/);
+            if (dayMonthMatch && year) {
+              const day = dayMonthMatch[1].padStart(2, '0');
+              const monthName = dayMonthMatch[2];
+              const monthMap = {
+                'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04',
+                'May': '05', 'Jun': '06', 'Jul': '07', 'Aug': '08',
+                'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'
+              };
+              const month = monthMap[monthName] || '01';
+              extractedDate = year + '-' + month + '-' + day;
+              inspectionData.parsingNotes.push('Extracted date from time/date/span structure: ' + extractedDate);
+            }
+          }
+        }
+        
+        // Try to extract time from <em> tag with Persian time format
+        const emElement = element.querySelector('em');
+        if (emElement) {
+          const emText = emElement.textContent || '';
+          // Match Persian time format like "ظهر (۱۳:۳۰ - ۱۶:۳۰)" or "صبح (۰۹:۰۰ - ۱۲:۰۰)"
+          const persianTimeMatch = emText.match(/([^(]+)\\s*\\(([^)]+)\\)/);
+          if (persianTimeMatch) {
+            const timePeriod = persianTimeMatch[1].trim(); // ظهر, صبح, etc.
+            const timeRange = persianTimeMatch[2].trim(); // ۱۳:۳۰ - ۱۶:۳۰
+            
+            // Convert Persian digits to English
+            const convertPersianDigits = (str) => {
+              const persianDigits = '۰۱۲۳۴۵۶۷۸۹';
+              const englishDigits = '0123456789';
+              return str.replace(/[۰-۹]/g, (char) => {
+                return englishDigits[persianDigits.indexOf(char)];
+              });
+            };
+            
+            const englishTimeRange = convertPersianDigits(timeRange);
+            extractedTime = timePeriod + ' (' + englishTimeRange + ')';
+            inspectionData.parsingNotes.push('Extracted Persian time from em element: ' + extractedTime);
+          }
+        }
+        
+        // Fallback to regex-based extraction if structured extraction failed
+        if (!extractedDate) {
+          const dateMatch = textContent.match(/(\\d{4}-\\d{2}-\\d{2}|\\d{2}\\/\\d{2}\\/\\d{4})/);
+          extractedDate = dateMatch ? normalizeDate(dateMatch[1]) : new Date().toISOString().split('T')[0];
+        }
+        
+        if (!extractedTime) {
+          const timeMatch = textContent.match(/(\\d{1,2}:\\d{2}(?:\\s*-\\s*\\d{1,2}:\\d{2})?)/);
+          extractedTime = timeMatch ? timeMatch[1] : 'TBD';
+        }
         
         // Enhanced status detection
         const status = detectAppointmentStatus(element);
         
-        if (!dateMatch && !timeMatch && status === 'unknown') {
+        if (!extractedDate && !extractedTime && status === 'unknown') {
           return null;
         }
         
         return {
           id: 'appointment-' + Date.now() + '-' + index,
-          date: dateMatch ? normalizeDate(dateMatch[1]) : new Date().toISOString().split('T')[0],
-          time: timeMatch ? timeMatch[1] : 'TBD',
-          location: extractLocation(textContent),
-          examType: extractExamType(textContent),
-          city: extractCity(textContent),
+          date: extractedDate,
+          time: extractedTime,
+          location: extractLocation(textContent, element),
+          examType: extractExamType(textContent, element),
+          city: extractCity(textContent, element),
           status: status === 'unknown' ? 'available' : status,
-          price: extractPrice(textContent),
+          price: extractPrice(textContent, element),
           registrationUrl: extractRegistrationUrl(element),
           rawHtml: rawHtml
         };
@@ -635,8 +885,15 @@ export class WebScraperService {
         };
       }
       
-      // Try multiple possible selectors for appointment cards
+      // Enhanced appointment element detection with IELTS-specific selectors
       const selectors = [
+        // IELTS-specific selectors (highest priority)
+        'a.exam__item.ielts',
+        'a.exam__item',
+        '.exam__item.ielts',
+        '.exam__item',
+        
+        // Fallback selectors
         '.appointment-card',
         '.timetable-item', 
         '.exam-slot',
@@ -644,36 +901,102 @@ export class WebScraperService {
         '[data-appointment]',
         '.card',
         '.exam-card',
-        '.slot-card'
+        '.slot-card',
+        '.appointment',
+        '.exam-time',
+        '.time-slot',
+        
+        // Bootstrap and common framework selectors
+        '.card-body',
+        '.list-group-item',
+        '.panel-body',
+        
+        // Generic content selectors that might contain appointments
+        '.content-item',
+        '.item',
+        '.entry'
       ];
       
       let appointmentElements = null;
       let usedSelector = '';
       
+      // Try each selector and pick the one with most elements
+      let bestMatch = { elements: null, count: 0, selector: '' };
+      
       for (const selector of selectors) {
-        appointmentElements = document.querySelectorAll(selector);
-        if (appointmentElements.length > 0) {
-          usedSelector = selector;
-          inspectionData.detectedElements.push('Found elements with selector: ' + selector);
-          break;
+        const elements = document.querySelectorAll(selector);
+        if (elements.length > bestMatch.count) {
+          bestMatch = { elements, count: elements.length, selector };
         }
       }
       
-      // Fallback to broader selectors
+      if (bestMatch.count > 0) {
+        appointmentElements = bestMatch.elements;
+        usedSelector = bestMatch.selector;
+        inspectionData.detectedElements.push('Found ' + bestMatch.count + ' elements with selector: ' + bestMatch.selector);
+      }
+      
+      // Fallback to broader selectors with content filtering
       if (!appointmentElements || appointmentElements.length === 0) {
-        appointmentElements = document.querySelectorAll('div[class*="appointment"], div[class*="exam"], div[class*="slot"], .row .col');
-        if (appointmentElements.length > 0) {
-          usedSelector = 'fallback selector';
-          inspectionData.detectedElements.push('Used fallback selector for appointment elements');
+        const broadSelectors = [
+          'div[class*="appointment"], div[class*="exam"], div[class*="slot"]',
+          '.row .col, .row > div',
+          'div[class*="card"], div[class*="item"]',
+          'li, .list-item'
+        ];
+        
+        for (const selector of broadSelectors) {
+          const elements = document.querySelectorAll(selector);
+          // Filter elements that likely contain appointment data
+          const filteredElements = Array.from(elements).filter(el => {
+            const text = el.textContent || '';
+            const hasDate = /\\d{4}-\\d{2}-\\d{2}|\\d{2}\\/\\d{2}\\/\\d{4}/.test(text);
+            const hasTime = /\\d{1,2}:\\d{2}/.test(text);
+            const hasAppointmentKeywords = /exam|test|appointment|slot|ielts|cdielts/i.test(text);
+            return hasDate || hasTime || hasAppointmentKeywords;
+          });
+          
+          if (filteredElements.length > 0) {
+            appointmentElements = filteredElements;
+            usedSelector = selector + ' (filtered)';
+            inspectionData.detectedElements.push('Used filtered fallback selector: ' + selector + ' (' + filteredElements.length + ' elements)');
+            break;
+          }
         }
       }
       
-      // If still no elements, check for table rows
+      // If still no elements, check for table rows with appointment data
       if (!appointmentElements || appointmentElements.length === 0) {
-        appointmentElements = document.querySelectorAll('table tr, tbody tr');
-        if (appointmentElements.length > 0) {
-          usedSelector = 'table rows';
-          inspectionData.detectedElements.push('Found appointment data in table rows');
+        const tableRows = document.querySelectorAll('table tr, tbody tr, .table tr');
+        const appointmentRows = Array.from(tableRows).filter(row => {
+          const text = row.textContent || '';
+          const hasDate = /\\d{4}-\\d{2}-\\d{2}|\\d{2}\\/\\d{2}\\/\\d{4}/.test(text);
+          const hasTime = /\\d{1,2}:\\d{2}/.test(text);
+          return hasDate && hasTime;
+        });
+        
+        if (appointmentRows.length > 0) {
+          appointmentElements = appointmentRows;
+          usedSelector = 'table rows (filtered)';
+          inspectionData.detectedElements.push('Found appointment data in ' + appointmentRows.length + ' table rows');
+        }
+      }
+      
+      // Last resort: look for any element containing date and time patterns
+      if (!appointmentElements || appointmentElements.length === 0) {
+        const allElements = document.querySelectorAll('div, span, p, td, li');
+        const appointmentLikeElements = Array.from(allElements).filter(el => {
+          const text = el.textContent || '';
+          const hasDate = /\\d{4}-\\d{2}-\\d{2}|\\d{2}\\/\\d{2}\\/\\d{4}/.test(text);
+          const hasTime = /\\d{1,2}:\\d{2}/.test(text);
+          const isNotTooLarge = text.length < 500; // Avoid large containers
+          return hasDate && hasTime && isNotTooLarge;
+        });
+        
+        if (appointmentLikeElements.length > 0) {
+          appointmentElements = appointmentLikeElements;
+          usedSelector = 'date/time pattern matching';
+          inspectionData.detectedElements.push('Used pattern matching to find ' + appointmentLikeElements.length + ' potential appointment elements');
         }
       }
       
