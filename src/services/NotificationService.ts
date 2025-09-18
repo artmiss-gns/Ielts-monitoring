@@ -1,7 +1,8 @@
 import notifier from 'node-notifier';
 import * as fs from 'fs-extra';
 import * as path from 'path';
-import { Appointment, NotificationRecord } from '../models/types';
+import { Appointment, NotificationRecord, TelegramConfig } from '../models/types';
+import { TelegramNotifier } from './TelegramNotifier';
 
 /**
  * Notification Service handles multi-channel notifications for new appointments
@@ -10,10 +11,15 @@ export class NotificationService {
   private readonly logFilePath: string;
   private readonly maxRetries: number = 3;
   private readonly retryDelay: number = 1000; // 1 second
+  private telegramNotifier: TelegramNotifier | null = null;
 
-  constructor(logDirectory: string = 'logs') {
+  constructor(logDirectory: string = 'logs', telegramConfig?: TelegramConfig) {
     this.logFilePath = path.join(logDirectory, 'notifications.log');
     this.ensureLogDirectory();
+    
+    if (telegramConfig) {
+      this.telegramNotifier = new TelegramNotifier(telegramConfig);
+    }
   }
 
   /**
@@ -25,6 +31,7 @@ export class NotificationService {
       desktop: boolean;
       audio: boolean;
       logFile: boolean;
+      telegram?: boolean;
     }
   ): Promise<NotificationRecord> {
     // Check for available appointments upfront
@@ -56,6 +63,13 @@ export class NotificationService {
       const success = await this.playAudioAlertWithRetry();
       results.push(success);
       if (success) record.channels.push('audio');
+    }
+
+    // Telegram notification
+    if (channels.telegram && this.telegramNotifier) {
+      const success = await this.sendTelegramNotificationWithRetry(appointments);
+      results.push(success);
+      if (success) record.channels.push('telegram');
     }
 
     // File logging
@@ -108,6 +122,29 @@ export class NotificationService {
         return true;
       } catch (error) {
         console.error(`Audio alert attempt ${attempt} failed:`, error);
+        if (attempt < this.maxRetries) {
+          await this.delay(this.retryDelay * attempt);
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Send Telegram notification with retry mechanism
+   */
+  private async sendTelegramNotificationWithRetry(appointments: Appointment[]): Promise<boolean> {
+    if (!this.telegramNotifier) {
+      console.error('Telegram notifier not configured');
+      return false;
+    }
+
+    for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+      try {
+        const success = await this.telegramNotifier.sendNotification(appointments);
+        if (success) return true;
+      } catch (error) {
+        console.error(`Telegram notification attempt ${attempt} failed:`, error);
         if (attempt < this.maxRetries) {
           await this.delay(this.retryDelay * attempt);
         }
@@ -333,6 +370,34 @@ export class NotificationService {
   private async ensureLogDirectory(): Promise<void> {
     const logDir = path.dirname(this.logFilePath);
     await fs.ensureDir(logDir);
+  }
+
+  /**
+   * Configure Telegram notifications
+   */
+  configureTelegram(config: TelegramConfig): void {
+    this.telegramNotifier = new TelegramNotifier(config);
+  }
+
+  /**
+   * Test Telegram connection
+   */
+  async testTelegramConnection(): Promise<{ success: boolean; message: string }> {
+    if (!this.telegramNotifier) {
+      return {
+        success: false,
+        message: 'Telegram notifier not configured'
+      };
+    }
+
+    return await this.telegramNotifier.testConnection();
+  }
+
+  /**
+   * Check if Telegram is configured and ready
+   */
+  isTelegramConfigured(): boolean {
+    return this.telegramNotifier?.isConfigured() || false;
   }
 
   /**
