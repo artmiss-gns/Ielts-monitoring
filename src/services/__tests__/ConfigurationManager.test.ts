@@ -264,11 +264,23 @@ describe('ConfigurationManager', () => {
         city: ['isfahan'],
         examModel: ['cdielts'],
         months: [12, 1, 2],
-        checkInterval: 30000,
+        checkInterval: 300000,
+        baseUrl: 'https://irsafam.org/ielts/timetable',
         notificationSettings: {
-          desktop: true,
-          audio: true,
-          logFile: true
+          desktop: false,
+          audio: false,
+          logFile: true,
+          telegram: false
+        },
+        security: {
+          enableSecureLogging: true,
+          maskSensitiveData: true,
+          logLevel: 'info'
+        },
+        server: {
+          enableHealthCheck: false,
+          healthCheckPort: 3000,
+          enableMetrics: false
         }
       });
     });

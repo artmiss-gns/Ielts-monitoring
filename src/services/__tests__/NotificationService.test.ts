@@ -1,11 +1,13 @@
 import { NotificationService } from '../NotificationService';
-import { Appointment } from '../../models/types';
+import { Appointment, TelegramConfig } from '../../models/types';
 
-// Mock node-notifier
+// Mock node-notifier to prevent actual system notifications during tests
 jest.mock('node-notifier', () => ({
   notify: jest.fn((_options, callback) => {
-    // Simulate successful notification
-    setTimeout(() => callback(null, 'success'), 10);
+    // Simulate successful notification without triggering real system notifications
+    if (callback) {
+      process.nextTick(() => callback(null, 'success'));
+    }
   })
 }));
 
@@ -18,10 +20,29 @@ jest.mock('fs-extra', () => ({
   remove: jest.fn().mockResolvedValue(undefined)
 }));
 
+// Mock TelegramNotifier
+jest.mock('../TelegramNotifier', () => ({
+  TelegramNotifier: jest.fn().mockImplementation(() => ({
+    sendNotification: jest.fn().mockResolvedValue(true),
+    testConnection: jest.fn().mockResolvedValue({ success: true, message: 'Connected' }),
+    isConfigured: jest.fn().mockReturnValue(true)
+  }))
+}));
+
 describe('NotificationService', () => {
   let notificationService: NotificationService;
+  let notificationServiceWithTelegram: NotificationService;
   let mockNotifier: any;
   let mockFs: any;
+  let mockTelegramNotifier: any;
+
+  const mockTelegramConfig: TelegramConfig = {
+    botToken: 'test-token',
+    chatId: '@test_channel',
+    messageFormat: 'detailed',
+    enablePreview: false,
+    isChannel: true
+  };
 
   const mockAppointments: Appointment[] = [
     {
@@ -76,8 +97,18 @@ describe('NotificationService', () => {
     // Setup mocks
     mockNotifier = require('node-notifier');
     mockFs = require('fs-extra');
+    
+    // Setup TelegramNotifier mock
+    const { TelegramNotifier } = require('../TelegramNotifier');
+    mockTelegramNotifier = {
+      sendNotification: jest.fn().mockResolvedValue(true),
+      testConnection: jest.fn().mockResolvedValue({ success: true, message: 'Connected' }),
+      isConfigured: jest.fn().mockReturnValue(true)
+    };
+    TelegramNotifier.mockImplementation(() => mockTelegramNotifier);
 
     notificationService = new NotificationService('test-logs');
+    notificationServiceWithTelegram = new NotificationService('test-logs', mockTelegramConfig);
   });
 
   describe('Notification Filtering', () => {
@@ -335,6 +366,77 @@ describe('NotificationService', () => {
       
       await expect(notificationService.sendNotification(appointmentsWithUndefinedStatus, channels))
         .rejects.toThrow('No available appointments to notify about');
+    });
+  });
+
+  describe('Telegram Integration', () => {
+    test('should send Telegram notifications when configured', async () => {
+      const channels = { desktop: false, audio: false, logFile: false, telegram: true };
+      
+      const result = await notificationServiceWithTelegram.sendNotification(mockAppointments, channels);
+
+      expect(result.deliveryStatus).toBe('success');
+      expect(result.channels).toContain('telegram');
+      expect(mockTelegramNotifier.sendNotification).toHaveBeenCalledWith(mockAppointments);
+    });
+
+    test('should handle Telegram notification failures gracefully', async () => {
+      // Create a new service instance with failing Telegram mock
+      const failingTelegramMock = {
+        sendNotification: jest.fn().mockResolvedValue(false),
+        testConnection: jest.fn().mockResolvedValue({ success: false, message: 'Failed' }),
+        isConfigured: jest.fn().mockReturnValue(true)
+      };
+      const { TelegramNotifier } = require('../TelegramNotifier');
+      TelegramNotifier.mockImplementationOnce(() => failingTelegramMock);
+      
+      const failingService = new NotificationService('test-logs', mockTelegramConfig);
+      const channels = { desktop: false, audio: false, logFile: true, telegram: true };
+      
+      const result = await failingService.sendNotification(mockAppointments, channels);
+
+      expect(result.deliveryStatus).toBe('partial');
+      expect(result.channels).not.toContain('telegram');
+      expect(result.channels).toContain('logFile');
+    });
+
+    test('should skip Telegram when not configured', async () => {
+      const channels = { desktop: false, audio: false, logFile: true, telegram: true };
+      
+      const result = await notificationService.sendNotification(mockAppointments, channels);
+
+      expect(result.channels).not.toContain('telegram');
+      expect(result.channels).toContain('logFile');
+    });
+
+    test('should configure Telegram after initialization', () => {
+      notificationService.configureTelegram(mockTelegramConfig);
+      expect(notificationService.isTelegramConfigured()).toBe(true);
+    });
+
+    test('should test Telegram connection', async () => {
+      const result = await notificationServiceWithTelegram.testTelegramConnection();
+      
+      expect(result.success).toBe(true);
+      expect(result.message).toBe('Connected');
+      expect(mockTelegramNotifier.testConnection).toHaveBeenCalled();
+    });
+
+    test('should handle Telegram test when not configured', async () => {
+      const result = await notificationService.testTelegramConnection();
+      
+      expect(result.success).toBe(false);
+      expect(result.message).toBe('Telegram notifier not configured');
+    });
+
+    test('should support multi-channel notifications with Telegram', async () => {
+      const channels = { desktop: true, audio: true, logFile: true, telegram: true };
+      
+      const result = await notificationServiceWithTelegram.sendNotification(mockAppointments, channels);
+
+      expect(['success', 'partial']).toContain(result.deliveryStatus);
+      expect(result.channels.length).toBeGreaterThan(0);
+      expect(result.channels).toContain('telegram');
     });
   });
 });

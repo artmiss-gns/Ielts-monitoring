@@ -77,7 +77,7 @@ describe('WebScraperService', () => {
       };
 
       const url = webScraperService.buildRequestUrl(filters);
-      expect(url).toBe('https://irsafam.org/ielts/timetable?exam_model%5B%5D=cdielts');
+      expect(url).toBe('https://irsafam.org/ielts/timetable?model%5B%5D=cdielts');
     });
 
     it('should build URL with month filters', () => {
@@ -88,7 +88,7 @@ describe('WebScraperService', () => {
       };
 
       const url = webScraperService.buildRequestUrl(filters);
-      expect(url).toBe('https://irsafam.org/ielts/timetable?month%5B%5D=12&month%5B%5D=1&month%5B%5D=2');
+      expect(url).toBe('https://irsafam.org/ielts/timetable?month%5B%5D=12');
     });
 
     it('should build URL with all filters', () => {
@@ -99,7 +99,7 @@ describe('WebScraperService', () => {
       };
 
       const url = webScraperService.buildRequestUrl(filters);
-      expect(url).toBe('https://irsafam.org/ielts/timetable?city%5B%5D=isfahan&exam_model%5B%5D=cdielts&month%5B%5D=12');
+      expect(url).toBe('https://irsafam.org/ielts/timetable?city%5B%5D=isfahan&model%5B%5D=cdielts&month%5B%5D=12');
     });
   });
 
@@ -132,7 +132,7 @@ describe('WebScraperService', () => {
       expect(mockPage.setUserAgent).toHaveBeenCalled();
       expect(mockPage.setViewport).toHaveBeenCalledWith({ width: 1366, height: 768 });
       expect(mockPage.goto).toHaveBeenCalledWith(
-        'https://irsafam.org/ielts/timetable?city%5B%5D=isfahan&exam_model%5B%5D=cdielts&month%5B%5D=2',
+        'https://irsafam.org/ielts/timetable?city%5B%5D=isfahan&model%5B%5D=cdielts&month%5B%5D=2',
         { waitUntil: 'networkidle2', timeout: 30000 }
       );
       expect(mockPage.close).toHaveBeenCalled();
