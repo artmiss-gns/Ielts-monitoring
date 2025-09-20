@@ -10,9 +10,13 @@ export class LogViewer {
   private followInterval: NodeJS.Timeout | null = null;
 
   /**
-   * Show recent log entries
+   * Show recent log entries with optional filtering
    */
-  async showLogs(lines: number = 50): Promise<void> {
+  async showLogs(lines: number = 50, filters?: {
+    level?: string;
+    type?: string;
+    since?: string;
+  }): Promise<void> {
     try {
       const logFiles = await this.getLogFiles();
       
@@ -28,11 +32,17 @@ export class LogViewer {
       const logContent = await fs.readFile(latestLogFile.path, 'utf-8');
       const logLines = logContent.split('\n').filter(line => line.trim());
       
+      // Apply filters if provided
+      let filteredLines = logLines;
+      if (filters) {
+        filteredLines = this.applyFilters(logLines, filters);
+      }
+
       // Get the last N lines
-      const recentLines = logLines.slice(-lines);
+      const recentLines = filteredLines.slice(-lines);
       
       if (recentLines.length === 0) {
-        console.log(chalk.gray('No log entries found'));
+        console.log(chalk.gray('No log entries found matching the filters'));
         return;
       }
 
@@ -49,12 +59,16 @@ export class LogViewer {
   }
 
   /**
-   * Follow logs in real-time (tail -f behavior)
+   * Follow logs in real-time (tail -f behavior) with optional filtering
    */
-  async followLogs(initialLines: number = 50): Promise<void> {
+  async followLogs(initialLines: number = 50, filters?: {
+    level?: string;
+    type?: string;
+    since?: string;
+  }): Promise<void> {
     try {
       // Show initial log entries
-      await this.showLogs(initialLines);
+      await this.showLogs(initialLines, filters);
       console.log(chalk.gray('\n' + '─'.repeat(50)));
       console.log(chalk.blue('Following new log entries...'));
       console.log(chalk.gray('─'.repeat(50) + '\n'));
@@ -87,7 +101,13 @@ export class LogViewer {
             });
 
             stream.on('end', () => {
-              const newLines = buffer.split('\n').filter(line => line.trim());
+              let newLines = buffer.split('\n').filter(line => line.trim());
+              
+              // Apply filters to new lines
+              if (filters) {
+                newLines = this.applyFilters(newLines, filters);
+              }
+              
               newLines.forEach(line => {
                 this.displayLogLine(line);
               });
@@ -248,6 +268,115 @@ export class LogViewer {
 
     } catch (error) {
       throw new Error(`Failed to get log statistics: ${error instanceof Error ? error.message : error}`);
+    }
+  }
+
+  /**
+   * Apply filters to log lines
+   */
+  private applyFilters(lines: string[], filters: {
+    level?: string;
+    type?: string;
+    since?: string;
+  }): string[] {
+    return lines.filter(line => {
+      if (!line.trim()) return false;
+
+      try {
+        const logEntry = JSON.parse(line);
+        
+        // Level filter
+        if (filters.level) {
+          const entryLevel = logEntry.level?.toLowerCase();
+          if (entryLevel !== filters.level.toLowerCase()) {
+            return false;
+          }
+        }
+
+        // Type filter (based on message content or context)
+        if (filters.type) {
+          const message = logEntry.message?.toLowerCase() || '';
+          const context = JSON.stringify(logEntry.context || {}).toLowerCase();
+          const typeFilter = filters.type.toLowerCase();
+          
+          let matchesType = false;
+          switch (typeFilter) {
+            case 'monitor':
+              matchesType = message.includes('monitor') || message.includes('check') || message.includes('scan');
+              break;
+            case 'notifications':
+              matchesType = message.includes('notification') || message.includes('telegram') || message.includes('sent');
+              break;
+            case 'errors':
+              matchesType = logEntry.level?.toLowerCase() === 'error' || message.includes('error') || message.includes('failed');
+              break;
+            default:
+              matchesType = message.includes(typeFilter) || context.includes(typeFilter);
+          }
+          
+          if (!matchesType) {
+            return false;
+          }
+        }
+
+        // Since filter
+        if (filters.since) {
+          const entryTime = new Date(logEntry.timestamp);
+          const sinceTime = this.parseSinceTime(filters.since);
+          
+          if (entryTime < sinceTime) {
+            return false;
+          }
+        }
+
+        return true;
+      } catch {
+        // For non-JSON lines, apply basic text filtering
+        const lowerLine = line.toLowerCase();
+        
+        if (filters.level && !lowerLine.includes(filters.level.toLowerCase())) {
+          return false;
+        }
+        
+        if (filters.type && !lowerLine.includes(filters.type.toLowerCase())) {
+          return false;
+        }
+        
+        return true;
+      }
+    });
+  }
+
+  /**
+   * Parse "since" time string into Date object
+   */
+  private parseSinceTime(since: string): Date {
+    const now = new Date();
+    
+    // Handle relative time formats like "1h", "30m", "2d"
+    const relativeMatch = since.match(/^(\d+)([hmsd])$/);
+    if (relativeMatch) {
+      const value = parseInt(relativeMatch[1]);
+      const unit = relativeMatch[2];
+      
+      switch (unit) {
+        case 's':
+          return new Date(now.getTime() - value * 1000);
+        case 'm':
+          return new Date(now.getTime() - value * 60 * 1000);
+        case 'h':
+          return new Date(now.getTime() - value * 60 * 60 * 1000);
+        case 'd':
+          return new Date(now.getTime() - value * 24 * 60 * 60 * 1000);
+      }
+    }
+    
+    // Handle absolute date formats
+    try {
+      return new Date(since);
+    } catch {
+      // Default to 1 hour ago if parsing fails
+      return new Date(now.getTime() - 60 * 60 * 1000);
     }
   }
 

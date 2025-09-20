@@ -12,7 +12,7 @@ export interface Appointment {
   location: string;
   examType: string;
   city: string;
-  status: 'available' | 'filled' | 'pending';
+  status: 'available' | 'filled' | 'pending' | 'not-registerable' | 'unknown';
   price?: number;
   registrationUrl?: string;
   rawHtml?: string; // Raw HTML for inspection purposes
@@ -62,6 +62,8 @@ export interface MonitorConfig {
   checkInterval: number;
   notificationSettings: NotificationSettings;
   baseUrl?: string; // Optional base URL for testing (defaults to irsafam.org)
+  security?: SecurityConfig;
+  server?: ServerConfig;
 }
 
 /**
@@ -71,6 +73,56 @@ export interface NotificationSettings {
   desktop: boolean;
   audio: boolean;
   logFile: boolean;
+  telegram?: boolean;
+}
+
+/**
+ * Security configuration
+ */
+export interface SecurityConfig {
+  enableSecureLogging: boolean;
+  maskSensitiveData: boolean;
+  logLevel: 'error' | 'warn' | 'info' | 'debug';
+}
+
+/**
+ * Server configuration
+ */
+export interface ServerConfig {
+  enableHealthCheck: boolean;
+  healthCheckPort?: number;
+  enableMetrics: boolean;
+}
+
+/**
+ * Telegram notification configuration
+ */
+export interface TelegramConfig {
+  botToken: string;
+  chatId: string; // Can be channel ID (@channelname or -100xxxxxxxxx) or private chat ID
+  messageFormat: 'simple' | 'detailed';
+  enablePreview: boolean;
+  retryAttempts?: number;
+  retryDelay?: number;
+  isChannel?: boolean; // Indicates if chatId is a channel
+}
+
+/**
+ * Environment configuration
+ */
+export interface EnvironmentConfig {
+  telegramBotToken?: string | undefined;
+  telegramChatId?: string | undefined;
+  monitorCheckInterval?: number | undefined;
+  monitorCities?: string[] | undefined;
+  monitorExamModels?: string[] | undefined;
+  monitorMonths?: number[] | undefined;
+  monitorBaseUrl?: string | undefined;
+  logLevel?: string | undefined;
+  enableSecureLogging?: boolean | undefined;
+  maskSensitiveData?: boolean | undefined;
+  healthCheckPort?: number | undefined;
+  enableMetrics?: boolean | undefined;
 }
 
 /**
