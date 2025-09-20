@@ -1,0 +1,70 @@
+{
+  "apt-002": {
+    "id": "apt-002",
+    "appointment": {
+      "id": "apt-002",
+      "date": "2024-12-15",
+      "time": "13:00-16:00",
+      "location": "Isfahan Test Center",
+      "examType": "IELTS",
+      "city": "Isfahan",
+      "status": "available",
+      "price": 5000000,
+      "registrationUrl": "https://example.com/register"
+    },
+    "firstSeen": "2025-09-18T14:42:47.214Z",
+    "lastSeen": "2025-09-18T14:43:16.021Z",
+    "statusHistory": [
+      {
+        "timestamp": "2025-09-18T14:42:47.214Z",
+        "previousStatus": "unknown",
+        "newStatus": "filled",
+        "reason": "First detection"
+      },
+      {
+        "timestamp": "2025-09-18T14:42:47.215Z",
+        "previousStatus": "filled",
+        "newStatus": "available",
+        "reason": "Status change detected"
+      },
+      {
+        "timestamp": "2025-09-18T14:43:16.018Z",
+        "previousStatus": "available",
+        "newStatus": "filled",
+        "reason": "Status change detected"
+      },
+      {
+        "timestamp": "2025-09-18T14:43:16.019Z",
+        "previousStatus": "filled",
+        "newStatus": "available",
+        "reason": "Status change detected"
+      }
+    ],
+    "notificationsSent": 0
+  },
+  "apt-005": {
+    "id": "apt-005",
+    "appointment": {
+      "id": "apt-005",
+      "date": "2024-12-17",
+      "time": "09:00-12:00",
+      "location": "Isfahan Test Center",
+      "examType": "IELTS",
+      "city": "Isfahan",
+      "status": "available",
+      "price": 5000000,
+      "registrationUrl": "https://example.com/register"
+    },
+    "firstSeen": "2025-09-18T14:43:16.019Z",
+    "lastSeen": "2025-09-18T14:43:16.021Z",
+    "statusHistory": [
+      {
+        "timestamp": "2025-09-18T14:43:16.019Z",
+        "previousStatus": "unknown",
+        "newStatus": "available",
+        "reason": "First detection"
+      }
+    ],
+    "notificationsSent": 0
+  }
+}
