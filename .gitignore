@@ -68,3 +68,6 @@ config/*.private.json
 *.pem
 *.p12
 *.pfx
+
+
+.kiro*
