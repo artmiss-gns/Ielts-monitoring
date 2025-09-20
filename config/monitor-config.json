@@ -6,9 +6,9 @@
     "cdielts"
   ],
   "months": [
-    12,
-    1,
-    2
+    10,
+    11,
+    12
   ],
   "checkInterval": 30000,
   "baseUrl": "https://irsafam.org/ielts/timetable",
