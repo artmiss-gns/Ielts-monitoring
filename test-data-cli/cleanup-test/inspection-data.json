@@ -1,0 +1,182 @@
+[
+  {
+    "id": "inspection_1758490361231_dr3olclsk",
+    "timestamp": "2025-09-21T21:32:41.231Z",
+    "data": {
+      "url": "https://cleanup-test-9.example.com",
+      "pageTitle": "Cleanup Test 9",
+      "detectedElements": [
+        "element-9"
+      ],
+      "parsingNotes": "Cleanup test record 9",
+      "rawAppointmentHtml": [
+        "<div>cleanup-html-9</div>"
+      ],
+      "checkResult": {
+        "type": "available",
+        "appointmentCount": 1,
+        "availableCount": 1,
+        "filledCount": 0,
+        "timestamp": "2025-09-21T21:32:41.231Z",
+        "url": "https://cleanup-test-9.example.com",
+        "appointments": [
+          {
+            "id": "s1yz1vs0lmfu7ramn",
+            "date": "2025-02-01",
+            "time": "09:00-12:00",
+            "location": "Isfahan Test Center 1",
+            "examType": "CDIELTS",
+            "city": "isfahan",
+            "status": "available",
+            "price": 2500000,
+            "registrationUrl": "https://irsafam.org/register/u7o2s7fhlmfu7ramn"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "inspection_1758490361231_leuglaqdo",
+    "timestamp": "2025-09-21T21:32:41.231Z",
+    "data": {
+      "url": "https://cleanup-test-8.example.com",
+      "pageTitle": "Cleanup Test 8",
+      "detectedElements": [
+        "element-8"
+      ],
+      "parsingNotes": "Cleanup test record 8",
+      "rawAppointmentHtml": [
+        "<div>cleanup-html-8</div>"
+      ],
+      "checkResult": {
+        "type": "available",
+        "appointmentCount": 1,
+        "availableCount": 1,
+        "filledCount": 0,
+        "timestamp": "2025-09-21T21:32:41.231Z",
+        "url": "https://cleanup-test-8.example.com",
+        "appointments": [
+          {
+            "id": "e70kxaov2mfu7ramn",
+            "date": "2025-02-01",
+            "time": "09:00-12:00",
+            "location": "Isfahan Test Center 1",
+            "examType": "CDIELTS",
+            "city": "isfahan",
+            "status": "available",
+            "price": 2500000,
+            "registrationUrl": "https://irsafam.org/register/vsiurlfwqmfu7ramn"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "inspection_1758490361230_ffoztcmuk",
+    "timestamp": "2025-09-21T21:32:41.230Z",
+    "data": {
+      "url": "https://cleanup-test-7.example.com",
+      "pageTitle": "Cleanup Test 7",
+      "detectedElements": [
+        "element-7"
+      ],
+      "parsingNotes": "Cleanup test record 7",
+      "rawAppointmentHtml": [
+        "<div>cleanup-html-7</div>"
+      ],
+      "checkResult": {
+        "type": "available",
+        "appointmentCount": 1,
+        "availableCount": 1,
+        "filledCount": 0,
+        "timestamp": "2025-09-21T21:32:41.230Z",
+        "url": "https://cleanup-test-7.example.com",
+        "appointments": [
+          {
+            "id": "3o7ya4ar6mfu7ramm",
+            "date": "2025-02-01",
+            "time": "09:00-12:00",
+            "location": "Isfahan Test Center 1",
+            "examType": "CDIELTS",
+            "city": "isfahan",
+            "status": "available",
+            "price": 2500000,
+            "registrationUrl": "https://irsafam.org/register/rhari1j3tmfu7ramm"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "inspection_1758490361230_sn2kqqlhu",
+    "timestamp": "2025-09-21T21:32:41.230Z",
+    "data": {
+      "url": "https://cleanup-test-6.example.com",
+      "pageTitle": "Cleanup Test 6",
+      "detectedElements": [
+        "element-6"
+      ],
+      "parsingNotes": "Cleanup test record 6",
+      "rawAppointmentHtml": [
+        "<div>cleanup-html-6</div>"
+      ],
+      "checkResult": {
+        "type": "available",
+        "appointmentCount": 1,
+        "availableCount": 1,
+        "filledCount": 0,
+        "timestamp": "2025-09-21T21:32:41.229Z",
+        "url": "https://cleanup-test-6.example.com",
+        "appointments": [
+          {
+            "id": "xg22nxqfhmfu7raml",
+            "date": "2025-02-01",
+            "time": "09:00-12:00",
+            "location": "Isfahan Test Center 1",
+            "examType": "CDIELTS",
+            "city": "isfahan",
+            "status": "available",
+            "price": 2500000,
+            "registrationUrl": "https://irsafam.org/register/v4wxzde62mfu7raml"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "inspection_1758490361227_qb3pudrk5",
+    "timestamp": "2025-09-21T21:32:41.227Z",
+    "data": {
+      "url": "https://cleanup-test-5.example.com",
+      "pageTitle": "Cleanup Test 5",
+      "detectedElements": [
+        "element-5"
+      ],
+      "parsingNotes": "Cleanup test record 5",
+      "rawAppointmentHtml": [
+        "<div>cleanup-html-5</div>"
+      ],
+      "checkResult": {
+        "type": "available",
+        "appointmentCount": 1,
+        "availableCount": 1,
+        "filledCount": 0,
+        "timestamp": "2025-09-21T21:32:41.227Z",
+        "url": "https://cleanup-test-5.example.com",
+        "appointments": [
+          {
+            "id": "k8pk8oloimfu7ramj",
+            "date": "2025-02-01",
+            "time": "09:00-12:00",
+            "location": "Isfahan Test Center 1",
+            "examType": "CDIELTS",
+            "city": "isfahan",
+            "status": "available",
+            "price": 2500000,
+            "registrationUrl": "https://irsafam.org/register/3r6e4r71amfu7ramj"
+          }
+        ]
+      }
+    }
+  }
+]

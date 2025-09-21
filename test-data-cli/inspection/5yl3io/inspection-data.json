@@ -1,0 +1,143 @@
+[
+  {
+    "id": "inspection_1758490244453_7rt6rgatz",
+    "timestamp": "2025-09-21T21:30:44.453Z",
+    "data": {
+      "url": "https://cli-stats-2.example.com",
+      "pageTitle": "CLI Stats Test 2",
+      "detectedElements": [
+        "stats-element-2"
+      ],
+      "parsingNotes": "CLI stats test 2",
+      "rawAppointmentHtml": [
+        "<div>stats-html-2</div>"
+      ],
+      "checkResult": {
+        "type": "available",
+        "appointmentCount": 3,
+        "availableCount": 3,
+        "filledCount": 0,
+        "timestamp": "2025-09-21T21:30:44.453Z",
+        "url": "https://cli-stats-2.example.com",
+        "appointments": [
+          {
+            "id": "xkhb49o7nmfu7osit",
+            "date": "2025-02-01",
+            "time": "09:00-12:00",
+            "location": "Isfahan Test Center 1",
+            "examType": "CDIELTS",
+            "city": "isfahan",
+            "status": "available",
+            "price": 2500000,
+            "registrationUrl": "https://irsafam.org/register/68gsi2wdrmfu7osit"
+          },
+          {
+            "id": "04xb5frdymfu7osit",
+            "date": "2025-02-08",
+            "time": "14:00-17:00",
+            "location": "Isfahan Test Center 2",
+            "examType": "CDIELTS",
+            "city": "isfahan",
+            "status": "available",
+            "price": 2600000,
+            "registrationUrl": "https://irsafam.org/register/2lj25w7gvmfu7osit"
+          },
+          {
+            "id": "38yrz64ermfu7osit",
+            "date": "2025-02-15",
+            "time": "09:00-12:00",
+            "location": "Isfahan Test Center 3",
+            "examType": "CDIELTS",
+            "city": "isfahan",
+            "status": "available",
+            "price": 2700000,
+            "registrationUrl": "https://irsafam.org/register/wh443she1mfu7osit"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "inspection_1758490244445_7iwsyp1r5",
+    "timestamp": "2025-09-21T21:30:44.445Z",
+    "data": {
+      "url": "https://cli-stats-1.example.com",
+      "pageTitle": "CLI Stats Test 1",
+      "detectedElements": [
+        "stats-element-1"
+      ],
+      "parsingNotes": "CLI stats test 1",
+      "rawAppointmentHtml": [
+        "<div>stats-html-1</div>"
+      ],
+      "checkResult": {
+        "type": "available",
+        "appointmentCount": 2,
+        "availableCount": 2,
+        "filledCount": 0,
+        "timestamp": "2025-09-21T21:30:44.445Z",
+        "url": "https://cli-stats-1.example.com",
+        "appointments": [
+          {
+            "id": "ovy77zsidmfu7osil",
+            "date": "2025-02-01",
+            "time": "09:00-12:00",
+            "location": "Isfahan Test Center 1",
+            "examType": "CDIELTS",
+            "city": "isfahan",
+            "status": "available",
+            "price": 2500000,
+            "registrationUrl": "https://irsafam.org/register/txtp4cawymfu7osil"
+          },
+          {
+            "id": "03dx11jfemfu7osil",
+            "date": "2025-02-08",
+            "time": "14:00-17:00",
+            "location": "Isfahan Test Center 2",
+            "examType": "CDIELTS",
+            "city": "isfahan",
+            "status": "available",
+            "price": 2600000,
+            "registrationUrl": "https://irsafam.org/register/went6j1l8mfu7osil"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "inspection_1758490244445_b1j08yj64",
+    "timestamp": "2025-09-21T21:30:44.445Z",
+    "data": {
+      "url": "https://cli-stats-0.example.com",
+      "pageTitle": "CLI Stats Test 0",
+      "detectedElements": [
+        "stats-element-0"
+      ],
+      "parsingNotes": "CLI stats test 0",
+      "rawAppointmentHtml": [
+        "<div>stats-html-0</div>"
+      ],
+      "checkResult": {
+        "type": "available",
+        "appointmentCount": 1,
+        "availableCount": 1,
+        "filledCount": 0,
+        "timestamp": "2025-09-21T21:30:44.444Z",
+        "url": "https://cli-stats-0.example.com",
+        "appointments": [
+          {
+            "id": "imxlsgeksmfu7osik",
+            "date": "2025-02-01",
+            "time": "09:00-12:00",
+            "location": "Isfahan Test Center 1",
+            "examType": "CDIELTS",
+            "city": "isfahan",
+            "status": "available",
+            "price": 2500000,
+            "registrationUrl": "https://irsafam.org/register/2d2y9l4vdmfu7osik"
+          }
+        ]
+      }
+    }
+  }
+]

@@ -1,0 +1,51 @@
+[
+  {
+    "id": "inspection_1758489965609_1biva652e",
+    "timestamp": "2025-09-21T21:26:05.609Z",
+    "data": {
+      "url": "https://detailed-test.example.com",
+      "pageTitle": "Detailed Test Page",
+      "detectedElements": [
+        "detailed-element-1",
+        "detailed-element-2"
+      ],
+      "parsingNotes": "Detailed test with comprehensive information",
+      "rawAppointmentHtml": [
+        "<div class=\"appointment\">Appointment 1</div>",
+        "<div class=\"appointment\">Appointment 2</div>"
+      ],
+      "checkResult": {
+        "type": "available",
+        "appointmentCount": 2,
+        "availableCount": 2,
+        "filledCount": 0,
+        "timestamp": "2025-09-21T21:26:05.609Z",
+        "url": "https://detailed-test.example.com",
+        "appointments": [
+          {
+            "id": "6sczou9t6mfu7itd5",
+            "date": "2025-02-01",
+            "time": "09:00-12:00",
+            "location": "Isfahan Test Center 1",
+            "examType": "CDIELTS",
+            "city": "isfahan",
+            "status": "available",
+            "price": 2500000,
+            "registrationUrl": "https://irsafam.org/register/m9c2dqgr8mfu7itd5"
+          },
+          {
+            "id": "zaengfg2tmfu7itd5",
+            "date": "2025-02-08",
+            "time": "14:00-17:00",
+            "location": "Isfahan Test Center 2",
+            "examType": "CDIELTS",
+            "city": "isfahan",
+            "status": "available",
+            "price": 2600000,
+            "registrationUrl": "https://irsafam.org/register/vm2iupbgsmfu7itd5"
+          }
+        ]
+      }
+    }
+  }
+]

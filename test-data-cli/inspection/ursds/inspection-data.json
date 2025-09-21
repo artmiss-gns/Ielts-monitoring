@@ -1,0 +1,38 @@
+[
+  {
+    "id": "inspection_1758490244456_1r31xtndt",
+    "timestamp": "2025-09-21T21:30:44.456Z",
+    "data": {
+      "url": "https://format-test.example.com",
+      "pageTitle": "Format Test Page",
+      "detectedElements": [
+        "format-element"
+      ],
+      "parsingNotes": "Format test with special characters: \"quotes\" & symbols",
+      "rawAppointmentHtml": [
+        "<div>Format test HTML</div>"
+      ],
+      "checkResult": {
+        "type": "available",
+        "appointmentCount": 1,
+        "availableCount": 1,
+        "filledCount": 0,
+        "timestamp": "2025-09-21T21:30:44.456Z",
+        "url": "https://format-test.example.com",
+        "appointments": [
+          {
+            "id": "k4e5p6lczmfu7osiw",
+            "date": "2025-02-01",
+            "time": "09:00-12:00",
+            "location": "Isfahan Test Center 1",
+            "examType": "CDIELTS",
+            "city": "isfahan",
+            "status": "available",
+            "price": 2500000,
+            "registrationUrl": "https://irsafam.org/register/4pk5bcgzdmfu7osiw"
+          }
+        ]
+      }
+    }
+  }
+]

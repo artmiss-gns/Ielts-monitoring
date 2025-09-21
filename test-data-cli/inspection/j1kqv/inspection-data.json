@@ -1,0 +1,39 @@
+[
+  {
+    "id": "inspection_1758478229264_0yy9g7qbx",
+    "timestamp": "2025-09-21T18:10:29.264Z",
+    "data": {
+      "url": "https://cli-test.example.com",
+      "pageTitle": "CLI Test Page",
+      "detectedElements": [
+        "cli-element-1",
+        "cli-element-2"
+      ],
+      "parsingNotes": "CLI integration test data",
+      "rawAppointmentHtml": [
+        "<div>CLI test HTML</div>"
+      ],
+      "checkResult": {
+        "type": "available",
+        "appointmentCount": 1,
+        "availableCount": 1,
+        "filledCount": 0,
+        "timestamp": "2025-09-21T18:10:29.264Z",
+        "url": "https://cli-test.example.com",
+        "appointments": [
+          {
+            "id": "by50cjtv7mfu0j9jk",
+            "date": "2025-02-01",
+            "time": "09:00-12:00",
+            "location": "Isfahan Test Center 1",
+            "examType": "CDIELTS",
+            "city": "isfahan",
+            "status": "available",
+            "price": 2500000,
+            "registrationUrl": "https://irsafam.org/register/mf8vz7dovmfu0j9jk"
+          }
+        ]
+      }
+    }
+  }
+]
