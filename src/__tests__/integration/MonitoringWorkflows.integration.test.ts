@@ -16,7 +16,9 @@ describe('Monitoring Workflows Integration Tests', () => {
   let testDataDir: string;
 
   beforeAll(async () => {
-    mockServer = new MockIELTSServer(3002);
+    // Use a random port to avoid conflicts
+    const TEST_PORT = 3002 + Math.floor(Math.random() * 1000);
+    mockServer = new MockIELTSServer(TEST_PORT);
     await mockServer.start();
     
     testDataDir = path.join(__dirname, '../../../test-data-workflows');
@@ -234,7 +236,7 @@ describe('Monitoring Workflows Integration Tests', () => {
       // Change appointment status
       const updatedAppointments = appointments.map(apt => ({
         ...apt,
-        status: 'full' as const
+        status: 'filled' as const
       }));
       mockServer.setAppointments(updatedAppointments);
 
@@ -289,7 +291,7 @@ describe('Monitoring Workflows Integration Tests', () => {
     test('should handle notification failures gracefully', async () => {
       // Mock notification service to fail
       const mockNotifier = require('node-notifier');
-      mockNotifier.notify = jest.fn().mockImplementation((options, callback) => {
+      mockNotifier.notify = jest.fn().mockImplementation((_options, callback) => {
         callback(new Error('Notification failed'));
       });
 

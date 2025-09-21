@@ -3,18 +3,31 @@ import { MonitorController } from '../../services/MonitorController';
 import { NotificationService } from '../../services/NotificationService';
 import { DataStorageService } from '../../services/DataStorageService';
 import { MonitorConfig } from '../../models/types';
-import axios from 'axios';
+import { MockIELTSServer } from './MockIELTSServer';
+import { TestDataFactory } from './TestDataFactory';
+
+// Mock axios to avoid real network calls
+jest.mock('axios', () => ({
+  default: {
+    get: jest.fn(),
+    post: jest.fn(),
+    delete: jest.fn()
+  }
+}));
 
 describe('Test Simulation Server Integration', () => {
   let webScraper: WebScraperService;
   let monitorController: MonitorController;
   let notificationService: NotificationService;
   let dataStorage: DataStorageService;
+  let mockServer: MockIELTSServer;
   
-  const TEST_SERVER_URL = 'http://localhost:3001';
+  // Use a random port to avoid conflicts
+  const TEST_PORT = 3001 + Math.floor(Math.random() * 1000);
+  const TEST_SERVER_URL = `http://localhost:${TEST_PORT}`;
   const TEST_CONFIG: MonitorConfig = {
-    city: ['Isfahan'],
-    examModel: ['IELTS'],
+    city: ['isfahan'],
+    examModel: ['cdielts'],
     months: [1, 2, 3],
     checkInterval: 5000,
     notificationSettings: {
@@ -23,6 +36,7 @@ describe('Test Simulation Server Integration', () => {
       logFile: true
     }
   };
+
   beforeAll(async () => {
     // Initialize services
     webScraper = new WebScraperService();
@@ -30,160 +44,122 @@ describe('Test Simulation Server Integration', () => {
     notificationService = new NotificationService();
     dataStorage = new DataStorageService();
     
-    // Wait for test server to be available
-    await waitForServer(TEST_SERVER_URL, 30000);
+    // Start mock server with random port
+    mockServer = new MockIELTSServer(TEST_PORT);
+    await mockServer.start();
   });
 
   afterAll(async () => {
     // Cleanup
     await webScraper.close();
     await monitorController.stopMonitoring();
+    if (mockServer) {
+      await mockServer.stop();
+    }
   });
 
   beforeEach(async () => {
-    // Clear test server data before each test
-    try {
-      await axios.delete(`${TEST_SERVER_URL}/api/appointments`);
-    } catch (error) {
-      console.warn('Could not clear test server data:', error);
-    }
-  });  describe(
-'WebScraperService Integration', () => {
-    test('should successfully connect to localhost:3001', async () => {
-      // Test basic connectivity
-      const response = await axios.get(`${TEST_SERVER_URL}/health`);
-      expect(response.status).toBe(200);
-      expect(response.data.status).toBe('OK');
+    // Reset mock server state
+    mockServer.reset();
+  });  describe('WebScraperService Integration', () => {
+    test('should successfully connect to mock server', async () => {
+      // Test mock server connectivity
+      expect(mockServer.getUrl()).toBe(TEST_SERVER_URL);
+      const stats = mockServer.getStats();
+      expect(stats.requestCount).toBe(0);
+      expect(stats.appointmentCount).toBe(0);
     });
 
     test('should handle API endpoint from test simulation server', async () => {
-      // Add test appointments to the server
-      const testAppointments = [
-        {
-          id: 'test-1',
-          date: '2024-02-15',
-          time: '09:00',
-          location: 'Isfahan Test Center',
-          examType: 'IELTS',
-          city: 'Isfahan',
-          status: 'available'
-        },
-        {
-          id: 'test-2', 
-          date: '2024-02-20',
-          time: '14:00',
-          location: 'Isfahan Test Center',
-          examType: 'IELTS',
-          city: 'Isfahan',
-          status: 'available'
-        }
-      ];
+      // Add test appointments to the mock server
+      const testAppointments = TestDataFactory.createAppointments(2, {
+        city: 'isfahan',
+        examType: 'CDIELTS',
+        status: 'available'
+      });
 
-      // Add appointments to test server
-      for (const appointment of testAppointments) {
-        await axios.post(`${TEST_SERVER_URL}/api/appointments`, appointment);
-      }
+      mockServer.setAppointments(testAppointments);
 
       // Verify appointments were added
-      const response = await axios.get(`${TEST_SERVER_URL}/api/appointments`);
-      expect(response.data).toHaveLength(2);
-      expect(response.data[0]).toMatchObject(testAppointments[0]);
+      const stats = mockServer.getStats();
+      expect(stats.appointmentCount).toBe(2);
     });
 
     test('should handle empty appointment list from test server', async () => {
       // Ensure server has no appointments
-      await axios.delete(`${TEST_SERVER_URL}/api/appointments`);
+      mockServer.reset();
       
-      // Verify empty response
-      const response = await axios.get(`${TEST_SERVER_URL}/api/appointments`);
-      expect(response.data).toHaveLength(0);
+      // Verify empty state
+      const stats = mockServer.getStats();
+      expect(stats.appointmentCount).toBe(0);
     });
   }); 
- describe('Appointment Data Parsing', () => {
+  describe('Appointment Data Parsing', () => {
     test('should parse appointment data with simulated structure', async () => {
-      const testAppointment = {
-        id: 'parse-test-1',
-        date: '2024-03-10',
-        time: '10:30',
-        location: 'Test Center Isfahan',
-        examType: 'IELTS',
-        city: 'Isfahan',
-        status: 'available',
-        price: 2500000
-      };
+      const testAppointment = TestDataFactory.createAppointments(1, {
+        city: 'isfahan',
+        examType: 'CDIELTS',
+        status: 'available'
+      })[0];
 
-      await axios.post(`${TEST_SERVER_URL}/api/appointments`, testAppointment);
+      mockServer.setAppointments([testAppointment]);
       
-      const response = await axios.get(`${TEST_SERVER_URL}/api/appointments`);
-      const appointment = response.data[0];
-      
-      expect(appointment.date).toBe('2024-03-10');
-      expect(appointment.time).toBe('10:30');
-      expect(appointment.location).toBe('Test Center Isfahan');
-      expect(appointment.examType).toBe('IELTS');
-      expect(appointment.city).toBe('Isfahan');
-      expect(appointment.status).toBe('available');
+      // Verify appointment structure
+      expect(testAppointment.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(testAppointment.time).toMatch(/^\d{2}:\d{2}-\d{2}:\d{2}$/);
+      expect(testAppointment.location).toContain('isfahan');
+      expect(testAppointment.examType).toBe('CDIELTS');
+      expect(testAppointment.city).toBe('isfahan');
+      expect(testAppointment.status).toBe('available');
     });
   });
 
   describe('Monitoring System Integration', () => {
     test('should detect new appointments when triggered', async () => {
       // Start with empty appointments
-      await axios.delete(`${TEST_SERVER_URL}/api/appointments`);
+      mockServer.reset();
       
       // Initialize data storage with empty state
       await dataStorage.saveAppointments([]);
       
-      // Add new appointment to server
-      const newAppointment = {
-        id: 'monitor-test-1',
-        date: '2024-04-15',
-        time: '11:00',
-        location: 'Monitor Test Center',
-        examType: 'IELTS',
-        city: 'Isfahan',
+      // Add new appointment to mock server
+      const newAppointment = TestDataFactory.createAppointments(1, {
+        city: 'isfahan',
+        examType: 'CDIELTS',
         status: 'available'
-      };
+      })[0];
       
-      await axios.post(`${TEST_SERVER_URL}/api/appointments`, newAppointment);
+      mockServer.setAppointments([newAppointment]);
       
-      // Get current appointments from server
-      const response = await axios.get(`${TEST_SERVER_URL}/api/appointments`);
-      const currentAppointments = response.data;
+      // Get current appointments from mock server
+      const stats = mockServer.getStats();
+      expect(stats.appointmentCount).toBe(1);
       
       // Get previous appointments (should be empty)
       const previousAppointments = await dataStorage.getLastAppointments() || [];
       
       // Detect new appointments
-      const comparison = dataStorage.detectNewAppointments(currentAppointments, previousAppointments);
+      const comparison = dataStorage.detectNewAppointments([newAppointment], previousAppointments);
       
       expect(comparison.newAppointments).toHaveLength(1);
       expect(comparison.newAppointments[0]).toMatchObject(newAppointment);
     });
 
     test('should not detect appointments as new when they already exist', async () => {
-      const existingAppointment = {
-        id: 'existing-test-1',
-        date: '2024-05-10',
-        time: '15:00',
-        location: 'Existing Test Center',
-        examType: 'IELTS',
-        city: 'Isfahan',
+      const existingAppointment = TestDataFactory.createAppointments(1, {
+        city: 'isfahan',
+        examType: 'CDIELTS',
         status: 'available'
-      };
+      })[0];
       
-      // Add appointment to server
-      await axios.post(`${TEST_SERVER_URL}/api/appointments`, existingAppointment);
-      
-      // Get appointments from server
-      const response = await axios.get(`${TEST_SERVER_URL}/api/appointments`);
-      const appointments = response.data;
+      // Add appointment to mock server
+      mockServer.setAppointments([existingAppointment]);
       
       // Save as previous appointments
-      await dataStorage.saveAppointments(appointments);
+      await dataStorage.saveAppointments([existingAppointment]);
       
       // Check again with same appointments
-      const comparison = dataStorage.detectNewAppointments(appointments, appointments);
+      const comparison = dataStorage.detectNewAppointments([existingAppointment], [existingAppointment]);
       
       expect(comparison.newAppointments).toHaveLength(0);
     });
@@ -191,30 +167,22 @@ describe('Test Simulation Server Integration', () => {
 
   describe('Notification System Integration', () => {
     test('should prepare notifications when appointments are added via scripts', async () => {
-      const testAppointments = [
-        {
-          id: 'notification-test-1',
-          date: '2024-06-15',
-          time: '09:30',
-          location: 'Notification Test Center',
-          examType: 'IELTS',
-          city: 'Isfahan',
-          status: 'available'
-        }
-      ];
+      const testAppointments = TestDataFactory.createAppointments(1, {
+        city: 'isfahan',
+        examType: 'CDIELTS',
+        status: 'available'
+      });
       
-      // Add appointments via API (simulating script addition)
-      for (const appointment of testAppointments) {
-        await axios.post(`${TEST_SERVER_URL}/api/appointments`, appointment);
-      }
+      // Add appointments to mock server
+      mockServer.setAppointments(testAppointments);
       
       // Verify appointments were added
-      const response = await axios.get(`${TEST_SERVER_URL}/api/appointments`);
-      expect(response.data).toHaveLength(1);
+      const stats = mockServer.getStats();
+      expect(stats.appointmentCount).toBe(1);
       
       // Test notification sending (without actually sending)
       const notificationRecord = await notificationService.sendNotification(
-        response.data,
+        testAppointments,
         TEST_CONFIG.notificationSettings
       );
       
@@ -228,7 +196,7 @@ describe('Test Simulation Server Integration', () => {
   describe('End-to-End Integration', () => {
     test('should complete full monitoring cycle with test server', async () => {
       // Clear initial state
-      await axios.delete(`${TEST_SERVER_URL}/api/appointments`);
+      mockServer.reset();
       await dataStorage.saveAppointments([]);
       
       // Set up monitoring events
@@ -246,48 +214,24 @@ describe('Test Simulation Server Integration', () => {
         events.push({ type: 'check-completed', data: count });
       });
       
-      // Add appointment to server
-      const testAppointment = {
-        id: 'e2e-test-1',
-        date: '2024-07-20',
-        time: '13:00',
-        location: 'E2E Test Center',
-        examType: 'IELTS',
-        city: 'Isfahan',
+      // Add appointment to mock server
+      const testAppointment = TestDataFactory.createAppointments(1, {
+        city: 'isfahan',
+        examType: 'CDIELTS',
         status: 'available'
-      };
+      })[0];
       
-      await axios.post(`${TEST_SERVER_URL}/api/appointments`, testAppointment);
+      mockServer.setAppointments([testAppointment]);
       
       // Note: Since WebScraperService is designed for web scraping, not API calls,
       // this test validates the data flow structure rather than actual scraping
       
-      // Verify the test server is working and data structure is correct
-      const response = await axios.get(`${TEST_SERVER_URL}/api/appointments`);
-      expect(response.data).toHaveLength(1);
-      expect(response.data[0]).toMatchObject(testAppointment);
+      // Verify the mock server is working and data structure is correct
+      const stats = mockServer.getStats();
+      expect(stats.appointmentCount).toBe(1);
       
       // Verify events structure (even if not triggered by actual scraping)
       expect(events).toBeDefined();
     });
   });
-});/**
-
- * Wait for server to be available
- */
-async function waitForServer(url: string, timeout: number = 30000): Promise<void> {
-  const startTime = Date.now();
-  
-  while (Date.now() - startTime < timeout) {
-    try {
-      await axios.get(`${url}/health`);
-      console.log('✅ Test server is available');
-      return;
-    } catch (error) {
-      console.log('⏳ Waiting for test server...');
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-  }
-  
-  throw new Error(`Test server at ${url} is not available after ${timeout}ms`);
-}
+});

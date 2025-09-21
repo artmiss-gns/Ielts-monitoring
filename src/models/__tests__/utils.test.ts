@@ -161,7 +161,7 @@ describe('filterAppointments', () => {
       location: 'Tehran Center',
       examType: 'IELTS Academic',
       city: 'Tehran',
-      status: 'full'
+      status: 'filled'
     },
     {
       id: '3',

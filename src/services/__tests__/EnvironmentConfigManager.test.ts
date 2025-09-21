@@ -73,7 +73,8 @@ describe('EnvironmentConfigManager', () => {
         messageFormat: 'simple',
         enablePreview: true,
         retryAttempts: 5,
-        retryDelay: 2000
+        retryDelay: 2000,
+        isChannel: false
       });
     });
 
@@ -89,7 +90,8 @@ describe('EnvironmentConfigManager', () => {
         messageFormat: 'detailed',
         enablePreview: true,
         retryAttempts: 3,
-        retryDelay: 1000
+        retryDelay: 1000,
+        isChannel: false
       });
     });
 

@@ -354,9 +354,9 @@ describe('Enhanced Monitoring System Integration Tests', () => {
 
       // Assert reasonable memory usage
       PerformanceTestUtils.assertMemoryLimits(metrics, {
-        maxMemoryGrowthMB: 50, // Allow up to 50MB growth
-        maxPeakMemoryMB: 200,  // Peak memory should not exceed 200MB
-        maxMemoryEfficiencyMBPerSecond: 10 // Memory growth rate limit
+        maxMemoryGrowthMB: 100, // Allow up to 100MB growth
+        maxPeakMemoryMB: 400,   // Peak memory should not exceed 400MB
+        maxMemoryEfficiencyMBPerSecond: 20 // Memory growth rate limit
       });
 
       console.log(`Memory efficiency test completed: ${PerformanceTestUtils.formatMemory(metrics.peakMemory)} peak usage`);

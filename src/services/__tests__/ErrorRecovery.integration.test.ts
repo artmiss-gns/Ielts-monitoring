@@ -1,6 +1,4 @@
 import { MonitorController } from '../MonitorController';
-import { WebScraperService } from '../WebScraperService';
-import { ErrorHandlerService } from '../ErrorHandlerService';
 
 // Mock external dependencies
 jest.mock('puppeteer');
@@ -27,6 +25,9 @@ describe('Error Recovery Integration Tests', () => {
         .mockRejectedValueOnce(new Error('ENOTFOUND example.com'))
         .mockRejectedValueOnce(new Error('ECONNREFUSED'))
         .mockResolvedValueOnce([]);
+      
+      // Verify mock was created
+      expect(mockFetch).toBeDefined();
 
       // Test that monitoring continues after network errors
       const config = {
@@ -50,6 +51,9 @@ describe('Error Recovery Integration Tests', () => {
       const mockParse = jest.fn()
         .mockRejectedValueOnce(new Error('Failed to parse HTML selector'))
         .mockResolvedValueOnce([]);
+      
+      // Verify mock was created
+      expect(mockParse).toBeDefined();
 
       const config = {
         city: ['isfahan'],

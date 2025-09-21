@@ -51,7 +51,23 @@ export class MockIELTSServer {
 
     // Health check endpoint
     this.app.get('/health', (_req: Request, res: Response) => {
-      res.json({ status: 'ok', requestCount: this.requestCount });
+      res.json({ status: 'OK', requestCount: this.requestCount });
+    });
+
+    // API endpoints for test integration
+    this.app.get('/api/appointments', (_req: Request, res: Response) => {
+      res.json(this.appointments);
+    });
+
+    this.app.post('/api/appointments', (req: Request, res: Response) => {
+      const appointment = req.body;
+      this.appointments.push(appointment);
+      res.json({ success: true, id: appointment.id });
+    });
+
+    this.app.delete('/api/appointments', (_req: Request, res: Response) => {
+      this.appointments = [];
+      res.json({ success: true, cleared: true });
     });
 
     // Admin endpoints for test control
@@ -167,7 +183,7 @@ export class MockIELTSServer {
    */
   async start(): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.server = this.app.listen(this.port, (err?: Error) => {
+      this.server = this.app.listen(this.port, '127.0.0.1', (err?: Error) => {
         if (err) {
           reject(err);
         } else {

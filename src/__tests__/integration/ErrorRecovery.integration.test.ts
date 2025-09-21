@@ -208,7 +208,7 @@ describe('Error Recovery Integration Tests', () => {
       });
 
       // Mock the web scraper to throw parsing errors
-      const originalFetch = jest.fn();
+      // const originalFetch = jest.fn(); // Unused for now
       
       await monitorController.startMonitoring(config);
       await PerformanceTestUtils.wait(400);
@@ -226,8 +226,8 @@ describe('Error Recovery Integration Tests', () => {
 
       // Mock file system to fail
       const fsError = new Error('EACCES: permission denied');
-      jest.spyOn(fs, 'appendFile').mockRejectedValue(fsError);
-      jest.spyOn(fs, 'writeFile').mockRejectedValue(fsError);
+      jest.spyOn(fs, 'appendFile').mockRejectedValue(fsError as never);
+      jest.spyOn(fs, 'writeFile').mockRejectedValue(fsError as never);
 
       const config = TestDataFactory.createMonitorConfig({
         checkInterval: 200,
@@ -260,7 +260,7 @@ describe('Error Recovery Integration Tests', () => {
 
       // Mock file system to fail with disk space error
       const diskError = new Error('ENOSPC: no space left on device');
-      jest.spyOn(fs, 'appendFile').mockRejectedValue(diskError);
+      jest.spyOn(fs, 'appendFile').mockRejectedValue(diskError as never);
 
       const config = TestDataFactory.createMonitorConfig({
         checkInterval: 200,
@@ -289,7 +289,7 @@ describe('Error Recovery Integration Tests', () => {
 
       // Mock notification service to fail
       const mockNotifier = require('node-notifier');
-      mockNotifier.notify = jest.fn().mockImplementation((options, callback) => {
+      mockNotifier.notify = jest.fn().mockImplementation((_options, callback) => {
         callback(new Error('Notification service unavailable'));
       });
 
@@ -360,10 +360,10 @@ describe('Error Recovery Integration Tests', () => {
       mockServer.setFailure(true, 'network');
       
       const fsError = new Error('File system error');
-      jest.spyOn(fs, 'appendFile').mockRejectedValue(fsError);
+      jest.spyOn(fs, 'appendFile').mockRejectedValue(fsError as never);
 
       const mockNotifier = require('node-notifier');
-      mockNotifier.notify = jest.fn().mockImplementation((options, callback) => {
+      mockNotifier.notify = jest.fn().mockImplementation((_options, callback) => {
         callback(new Error('Notification failed'));
       });
 
