@@ -6,13 +6,10 @@
     "cdielts"
   ],
   "months": [
-    1,
-    10,
-    11,
-    12
+    10
   ],
   "checkInterval": 30000,
-  "baseUrl": "https://irsafam.org/ielts/timetable",
+  "baseUrl": "http://localhost:3001/",
   "notificationSettings": {
     "desktop": false,
     "audio": false,
