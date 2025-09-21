@@ -1005,13 +1005,22 @@ export class CLIController {
     stats?: boolean;
     history?: string;
     recent?: string;
-  }): Promise<void> {
-    console.log(chalk.blue('🔔 Notification Tracking Status\n'));
+  }, appointmentDetectionService?: any): Promise<void> {
+    // Only show header if not JSON output
+    if (!options.json) {
+      console.log(chalk.blue('🔔 Notification Tracking Status\n'));
+    }
 
     try {
       // Initialize appointment detection service to access tracking data
-      const appointmentDetection = new (await import('../services/AppointmentDetectionService')).AppointmentDetectionService();
-      await appointmentDetection.initialize();
+      let appointmentDetection;
+      if (appointmentDetectionService) {
+        appointmentDetection = appointmentDetectionService;
+      } else {
+        const { AppointmentDetectionService } = await import('../services/AppointmentDetectionService');
+        appointmentDetection = new AppointmentDetectionService();
+        await appointmentDetection.initialize();
+      }
 
       if (options.history) {
         // Show history for specific appointment
@@ -1035,7 +1044,7 @@ export class CLIController {
         console.log(`${chalk.cyan('Notifications Sent:')} ${history.notificationsSent}`);
         
         console.log(chalk.blue('\n📊 Status History:'));
-        history.statusHistory.forEach((change, index) => {
+        history.statusHistory.forEach((change: any, index: number) => {
           const statusColor = change.newStatus === 'available' ? chalk.green : chalk.yellow;
           console.log(`   ${index + 1}. ${change.timestamp.toLocaleString()} - ${change.previousStatus} → ${statusColor(change.newStatus)} (${change.reason})`);
         });
@@ -1084,7 +1093,7 @@ export class CLIController {
         console.log(chalk.blue(`\n🔄 Recent Status Changes (last ${recentMinutes} minutes):`));
         console.log(chalk.gray('─'.repeat(50)));
         
-        recentChanges.slice(0, 10).forEach((change, index) => {
+        recentChanges.slice(0, 10).forEach((change: any, index: number) => {
           const statusColor = change.newStatus === 'available' ? chalk.green : chalk.yellow;
           console.log(`   ${index + 1}. ${change.timestamp.toLocaleString()} - ${change.previousStatus} → ${statusColor(change.newStatus)}`);
           if (options.detailed) {

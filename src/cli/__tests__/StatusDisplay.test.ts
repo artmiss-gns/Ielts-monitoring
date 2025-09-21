@@ -38,9 +38,11 @@ describe('StatusDisplay', () => {
           }
         },
         statistics: {
-          totalChecks: 25,
-          totalNotifications: 3,
-          totalErrors: 0,
+          sessionId: 'test-session-123',
+          startTime: new Date('2025-01-15T10:00:00Z'),
+          checksPerformed: 25,
+          notificationsSent: 3,
+          errorsEncountered: 0,
           uptime: 3600000, // 1 hour
           averageCheckInterval: 30000,
           lastCheckTime: new Date('2025-01-15T11:00:00Z'),
