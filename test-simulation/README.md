@@ -245,6 +245,21 @@ If appointments.json becomes corrupted:
 npm run reset-demo
 ```
 
+## Example usage by curl
+```bash
+curl -X POST http://localhost:3001/api/appointments \                                           
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "isfahan-jan09-1200-cdielts",
+    "date": "2024-01-09",
+    "time": "12:00",
+    "location": "Permission Fixed Center",
+    "examType": "CDIELTS",
+    "city": "Isfahan",
+    "status": "available"
+  }'
+```
+
 ## Development Notes
 
 ### Adding New Appointment Fields

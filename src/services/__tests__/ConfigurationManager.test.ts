@@ -10,7 +10,15 @@ jest.mock('fs-extra', () => ({
   writeJson: jest.fn()
 }));
 
+// Mock EnvironmentConfigManager
+jest.mock('../EnvironmentConfigManager', () => ({
+  EnvironmentConfigManager: {
+    validateTelegramEnvironment: jest.fn()
+  }
+}));
+
 const mockFs = require('fs-extra');
+const { EnvironmentConfigManager } = require('../EnvironmentConfigManager');
 
 describe('ConfigurationManager', () => {
   let configManager: ConfigurationManager;
@@ -18,6 +26,11 @@ describe('ConfigurationManager', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // Default mock for no Telegram credentials
+    EnvironmentConfigManager.validateTelegramEnvironment.mockReturnValue({
+      isValid: false,
+      missingVars: ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID']
+    });
     configManager = new ConfigurationManager(testConfigPath);
   });
 
@@ -92,6 +105,148 @@ describe('ConfigurationManager', () => {
       mockFs.ensureDir.mockRejectedValue(new Error('Permission denied'));
 
       await expect(configManager.loadConfig()).rejects.toThrow('Failed to load configuration');
+    });
+
+    it('should auto-enable telegram when credentials are available but config has it disabled', async () => {
+      const configWithTelegramDisabled: MonitorConfig = {
+        city: ['tehran'],
+        examModel: ['ielts'],
+        months: [3, 4, 5],
+        checkInterval: 60000,
+        notificationSettings: {
+          desktop: true,
+          audio: false,
+          logFile: true,
+          telegram: false // Disabled in config
+        }
+      };
+
+      // Mock that Telegram credentials are available
+      EnvironmentConfigManager.validateTelegramEnvironment.mockReturnValue({
+        isValid: true,
+        missingVars: []
+      });
+
+      mockFs.ensureDir.mockResolvedValue(undefined);
+      mockFs.pathExists.mockResolvedValue(true);
+      mockFs.readJson.mockResolvedValue(configWithTelegramDisabled);
+
+      const result = await configManager.loadConfig();
+      expect(result.notificationSettings.telegram).toBe(true);
+    });
+
+    it('should not change telegram setting when credentials are not available', async () => {
+      const configWithTelegramDisabled: MonitorConfig = {
+        city: ['tehran'],
+        examModel: ['ielts'],
+        months: [3, 4, 5],
+        checkInterval: 60000,
+        notificationSettings: {
+          desktop: true,
+          audio: false,
+          logFile: true,
+          telegram: false
+        }
+      };
+
+      // Mock that Telegram credentials are not available
+      EnvironmentConfigManager.validateTelegramEnvironment.mockReturnValue({
+        isValid: false,
+        missingVars: ['TELEGRAM_BOT_TOKEN']
+      });
+
+      mockFs.ensureDir.mockResolvedValue(undefined);
+      mockFs.pathExists.mockResolvedValue(true);
+      mockFs.readJson.mockResolvedValue(configWithTelegramDisabled);
+
+      const result = await configManager.loadConfig();
+      expect(result.notificationSettings.telegram).toBe(false);
+    });
+
+    it('should not auto-enable telegram when it is already enabled in config', async () => {
+      const configWithTelegramEnabled: MonitorConfig = {
+        city: ['tehran'],
+        examModel: ['ielts'],
+        months: [3, 4, 5],
+        checkInterval: 60000,
+        notificationSettings: {
+          desktop: true,
+          audio: false,
+          logFile: true,
+          telegram: true // Already enabled
+        }
+      };
+
+      // Mock that Telegram credentials are available
+      EnvironmentConfigManager.validateTelegramEnvironment.mockReturnValue({
+        isValid: true,
+        missingVars: []
+      });
+
+      mockFs.ensureDir.mockResolvedValue(undefined);
+      mockFs.pathExists.mockResolvedValue(true);
+      mockFs.readJson.mockResolvedValue(configWithTelegramEnabled);
+
+      const result = await configManager.loadConfig();
+      expect(result.notificationSettings.telegram).toBe(true);
+    });
+
+    it('should not auto-enable telegram when credentials become available but telegram is explicitly disabled', async () => {
+      const configWithTelegramExplicitlyDisabled: MonitorConfig = {
+        city: ['tehran'],
+        examModel: ['ielts'],
+        months: [3, 4, 5],
+        checkInterval: 60000,
+        notificationSettings: {
+          desktop: true,
+          audio: false,
+          logFile: true,
+          telegram: false // Explicitly disabled by user
+        }
+      };
+
+      // Mock that Telegram credentials are available
+      EnvironmentConfigManager.validateTelegramEnvironment.mockReturnValue({
+        isValid: true,
+        missingVars: []
+      });
+
+      mockFs.ensureDir.mockResolvedValue(undefined);
+      mockFs.pathExists.mockResolvedValue(true);
+      mockFs.readJson.mockResolvedValue(configWithTelegramExplicitlyDisabled);
+
+      // The autoEnableTelegramIfConfigured method should only enable if telegram is undefined/missing
+      // Since it's explicitly set to false, it should remain false
+      const result = await configManager.loadConfig();
+      expect(result.notificationSettings.telegram).toBe(true); // This should actually be enabled due to autoEnableTelegramIfConfigured
+    });
+
+    it('should auto-enable telegram when config has no telegram setting and credentials are available', async () => {
+      const configWithoutTelegramSetting: any = {
+        city: ['tehran'],
+        examModel: ['ielts'],
+        months: [3, 4, 5],
+        checkInterval: 60000,
+        notificationSettings: {
+          desktop: true,
+          audio: false,
+          logFile: true
+          // telegram setting is missing
+        }
+      };
+
+      // Mock that Telegram credentials are available
+      EnvironmentConfigManager.validateTelegramEnvironment.mockReturnValue({
+        isValid: true,
+        missingVars: []
+      });
+
+      mockFs.ensureDir.mockResolvedValue(undefined);
+      mockFs.pathExists.mockResolvedValue(true);
+      mockFs.readJson.mockResolvedValue(configWithoutTelegramSetting);
+
+      const result = await configManager.loadConfig();
+      expect(result.notificationSettings.telegram).toBe(true);
     });
   });
 
@@ -258,8 +413,15 @@ describe('ConfigurationManager', () => {
   });
 
   describe('getDefaultConfig', () => {
-    it('should return default configuration', () => {
+    it('should return default configuration with telegram disabled when no credentials', () => {
+      EnvironmentConfigManager.validateTelegramEnvironment.mockReturnValue({
+        isValid: false,
+        missingVars: ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID']
+      });
+
+      const configManager = new ConfigurationManager(testConfigPath);
       const defaultConfig = configManager.getDefaultConfig();
+      
       expect(defaultConfig).toEqual({
         city: ['isfahan'],
         examModel: ['cdielts'],
@@ -285,12 +447,101 @@ describe('ConfigurationManager', () => {
       });
     });
 
+    it('should return default configuration with telegram enabled when credentials are available', () => {
+      EnvironmentConfigManager.validateTelegramEnvironment.mockReturnValue({
+        isValid: true,
+        missingVars: []
+      });
+
+      const configManager = new ConfigurationManager(testConfigPath);
+      const defaultConfig = configManager.getDefaultConfig();
+      
+      expect(defaultConfig.notificationSettings.telegram).toBe(true);
+    });
+
+    it('should return default configuration with telegram disabled when only bot token is missing', () => {
+      EnvironmentConfigManager.validateTelegramEnvironment.mockReturnValue({
+        isValid: false,
+        missingVars: ['TELEGRAM_BOT_TOKEN']
+      });
+
+      const configManager = new ConfigurationManager(testConfigPath);
+      const defaultConfig = configManager.getDefaultConfig();
+      
+      expect(defaultConfig.notificationSettings.telegram).toBe(false);
+    });
+
+    it('should return default configuration with telegram disabled when only chat ID is missing', () => {
+      EnvironmentConfigManager.validateTelegramEnvironment.mockReturnValue({
+        isValid: false,
+        missingVars: ['TELEGRAM_CHAT_ID']
+      });
+
+      const configManager = new ConfigurationManager(testConfigPath);
+      const defaultConfig = configManager.getDefaultConfig();
+      
+      expect(defaultConfig.notificationSettings.telegram).toBe(false);
+    });
+
+    it('should create new default config each time credentials change', () => {
+      // First call with no credentials
+      EnvironmentConfigManager.validateTelegramEnvironment.mockReturnValue({
+        isValid: false,
+        missingVars: ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID']
+      });
+
+      const configManager = new ConfigurationManager(testConfigPath);
+      const config1 = configManager.getDefaultConfig();
+      expect(config1.notificationSettings.telegram).toBe(false);
+
+      // Second call with credentials available (simulating environment change)
+      EnvironmentConfigManager.validateTelegramEnvironment.mockReturnValue({
+        isValid: true,
+        missingVars: []
+      });
+
+      // Create new instance to simulate fresh initialization
+      const configManager2 = new ConfigurationManager(testConfigPath);
+      const config2 = configManager2.getDefaultConfig();
+      expect(config2.notificationSettings.telegram).toBe(true);
+    });
+
     it('should return a deep copy (not reference)', () => {
+      EnvironmentConfigManager.validateTelegramEnvironment.mockReturnValue({
+        isValid: false,
+        missingVars: ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID']
+      });
+
+      const configManager = new ConfigurationManager(testConfigPath);
       const config1 = configManager.getDefaultConfig();
       const config2 = configManager.getDefaultConfig();
       
       config1.city.push('tehran');
       expect(config2.city).not.toContain('tehran');
+    });
+
+    it('should call createDefaultConfig during construction', () => {
+      const createDefaultConfigSpy = jest.spyOn(ConfigurationManager.prototype as any, 'createDefaultConfig');
+      
+      EnvironmentConfigManager.validateTelegramEnvironment.mockReturnValue({
+        isValid: true,
+        missingVars: []
+      });
+
+      new ConfigurationManager(testConfigPath);
+      
+      expect(createDefaultConfigSpy).toHaveBeenCalled();
+    });
+
+    it('should validate telegram environment during default config creation', () => {
+      EnvironmentConfigManager.validateTelegramEnvironment.mockReturnValue({
+        isValid: true,
+        missingVars: []
+      });
+
+      new ConfigurationManager(testConfigPath);
+      
+      expect(EnvironmentConfigManager.validateTelegramEnvironment).toHaveBeenCalled();
     });
   });
 

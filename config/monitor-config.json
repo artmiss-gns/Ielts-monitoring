@@ -6,6 +6,7 @@
     "cdielts"
   ],
   "months": [
+    1,
     10,
     11,
     12
@@ -13,8 +14,9 @@
   "checkInterval": 30000,
   "baseUrl": "https://irsafam.org/ielts/timetable",
   "notificationSettings": {
-    "desktop": true,
-    "audio": true,
-    "logFile": true
+    "desktop": false,
+    "audio": false,
+    "logFile": true,
+    "telegram": true
   }
 }

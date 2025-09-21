@@ -3,6 +3,8 @@ import { MonitorController, MonitorStatus } from '../../services/MonitorControll
 import { ConfigurationManager } from '../../services/ConfigurationManager';
 import { MonitorConfig } from '../../models/types';
 
+const { EnvironmentConfigManager } = require('../../services/EnvironmentConfigManager');
+
 // Mock dependencies
 jest.mock('../../services/MonitorController');
 jest.mock('../../services/ConfigurationManager');
@@ -10,6 +12,23 @@ jest.mock('../../services/StatusLoggerService');
 jest.mock('../InteractiveConfigPrompts');
 jest.mock('../StatusDisplay');
 jest.mock('../LogViewer');
+
+// Mock EnvironmentConfigManager
+jest.mock('../../services/EnvironmentConfigManager', () => ({
+  EnvironmentConfigManager: {
+    validateTelegramEnvironment: jest.fn()
+  }
+}));
+
+// Mock chalk to avoid console output during tests
+jest.mock('chalk', () => ({
+  blue: jest.fn((text) => text),
+  gray: jest.fn((text) => text),
+  cyan: jest.fn((text) => text),
+  green: jest.fn((text) => text),
+  yellow: jest.fn((text) => text),
+  red: jest.fn((text) => text)
+}));
 
 describe('CLIController', () => {
   let cliController: CLIController;
@@ -32,12 +51,26 @@ describe('CLIController', () => {
     // Reset mocks
     jest.clearAllMocks();
     
+    // Mock console methods to avoid output during tests
+    jest.spyOn(console, 'log').mockImplementation();
+    
+    // Default mock for no Telegram credentials
+    EnvironmentConfigManager.validateTelegramEnvironment.mockReturnValue({
+      isValid: false,
+      missingVars: ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID']
+    });
+    
     // Create CLI controller instance
     cliController = new CLIController();
     
     // Get mocked instances
     mockMonitorController = (cliController as any).monitorController;
     mockConfigManager = (cliController as any).configManager;
+  });
+
+  afterEach(() => {
+    // Restore console methods
+    jest.restoreAllMocks();
   });
 
   describe('startCommand', () => {
@@ -79,11 +112,16 @@ describe('CLIController', () => {
       const customConfigPath = 'custom-config.json';
       mockMonitorController.startMonitoring.mockResolvedValue();
 
+      // Mock the ConfigurationManager constructor
+      const ConfigurationManager = require('../../services/ConfigurationManager').ConfigurationManager;
+      jest.spyOn(ConfigurationManager.prototype, 'configExists').mockResolvedValue(true);
+      jest.spyOn(ConfigurationManager.prototype, 'loadConfig').mockResolvedValue(mockConfig);
+
       // Execute command
       await cliController.startCommand({ config: customConfigPath, daemon: true });
 
-      // Verify that a new ConfigurationManager was created with custom path
-      expect(mockMonitorController.startMonitoring).toHaveBeenCalled();
+      // Verify that monitoring was started with the config
+      expect(mockMonitorController.startMonitoring).toHaveBeenCalledWith(mockConfig);
     });
 
     it('should handle start errors gracefully', async () => {
@@ -265,6 +303,56 @@ describe('CLIController', () => {
       expect(mockInteractivePrompts.confirmRestart).toHaveBeenCalled();
       expect(mockMonitorController.updateConfiguration).toHaveBeenCalledWith(mockConfig);
     });
+
+    it('should display configuration summary after saving', async () => {
+      // Setup mocks
+      mockConfigManager.loadConfig.mockResolvedValue(mockConfig);
+      mockConfigManager.saveConfig.mockResolvedValue();
+      mockMonitorController.getCurrentStatus.mockReturnValue(MonitorStatus.STOPPED);
+      
+      const mockInteractivePrompts = (cliController as any).interactivePrompts;
+      mockInteractivePrompts.promptForConfiguration.mockResolvedValue(mockConfig);
+
+      const displayConfigurationSummarySpy = jest.spyOn(cliController as any, 'displayConfigurationSummary');
+
+      // Execute command
+      await cliController.configureCommand({});
+
+      // Verify configuration summary is displayed
+      expect(displayConfigurationSummarySpy).toHaveBeenCalledWith(mockConfig);
+    });
+
+    it('should display configuration summary after reset', async () => {
+      // Setup mocks
+      mockConfigManager.resetToDefault.mockResolvedValue();
+      mockConfigManager.getDefaultConfig.mockReturnValue(mockConfig);
+
+      const displayConfigurationSummarySpy = jest.spyOn(cliController as any, 'displayConfigurationSummary');
+
+      // Execute command
+      await cliController.configureCommand({ reset: true });
+
+      // Verify configuration summary is displayed
+      expect(displayConfigurationSummarySpy).toHaveBeenCalledWith(mockConfig);
+    });
+
+    it('should use default config when loading existing config fails', async () => {
+      // Setup mocks
+      mockConfigManager.loadConfig.mockRejectedValue(new Error('Config not found'));
+      mockConfigManager.getDefaultConfig.mockReturnValue(mockConfig);
+      mockConfigManager.saveConfig.mockResolvedValue();
+      mockMonitorController.getCurrentStatus.mockReturnValue(MonitorStatus.STOPPED);
+      
+      const mockInteractivePrompts = (cliController as any).interactivePrompts;
+      mockInteractivePrompts.promptForConfiguration.mockResolvedValue(mockConfig);
+
+      // Execute command
+      await cliController.configureCommand({});
+
+      // Verify calls
+      expect(mockConfigManager.getDefaultConfig).toHaveBeenCalled();
+      expect(mockInteractivePrompts.promptForConfiguration).toHaveBeenCalledWith(mockConfig);
+    });
   });
 
   describe('pauseCommand', () => {
@@ -330,7 +418,7 @@ describe('CLIController', () => {
       await cliController.logsCommand({ lines: '100' });
 
       // Verify calls
-      expect(mockLogViewer.showLogs).toHaveBeenCalledWith(100);
+      expect(mockLogViewer.showLogs).toHaveBeenCalledWith(100, undefined);
     });
 
     it('should follow logs when requested', async () => {
@@ -341,7 +429,7 @@ describe('CLIController', () => {
       await cliController.logsCommand({ follow: true, lines: '25' });
 
       // Verify calls
-      expect(mockLogViewer.followLogs).toHaveBeenCalledWith(25);
+      expect(mockLogViewer.followLogs).toHaveBeenCalledWith(25, undefined);
     });
 
     it('should use default line count when not specified', async () => {
@@ -352,7 +440,176 @@ describe('CLIController', () => {
       await cliController.logsCommand({});
 
       // Verify calls
-      expect(mockLogViewer.showLogs).toHaveBeenCalledWith(50);
+      expect(mockLogViewer.showLogs).toHaveBeenCalledWith(50, undefined);
+    });
+  });
+
+  describe('getTelegramStatusDisplay', () => {
+    it('should return red X when Telegram is disabled', () => {
+      const result = (cliController as any).getTelegramStatusDisplay(false);
+      expect(result).toContain('✗');
+    });
+
+    it('should return green checkmark when Telegram is enabled and credentials are valid', () => {
+      // Mock valid Telegram credentials
+      EnvironmentConfigManager.validateTelegramEnvironment.mockReturnValue({
+        isValid: true,
+        missingVars: []
+      });
+
+      const result = (cliController as any).getTelegramStatusDisplay(true);
+      expect(result).toContain('✓');
+    });
+
+    it('should return warning symbol when Telegram is enabled but credentials are missing', () => {
+      // Mock missing Telegram credentials
+      EnvironmentConfigManager.validateTelegramEnvironment.mockReturnValue({
+        isValid: false,
+        missingVars: ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID']
+      });
+
+      const result = (cliController as any).getTelegramStatusDisplay(true);
+      expect(result).toContain('⚠️');
+      expect(result).toContain('credentials missing');
+    });
+
+    it('should return warning symbol when Telegram is enabled but only bot token is missing', () => {
+      // Mock partially missing Telegram credentials
+      EnvironmentConfigManager.validateTelegramEnvironment.mockReturnValue({
+        isValid: false,
+        missingVars: ['TELEGRAM_BOT_TOKEN']
+      });
+
+      const result = (cliController as any).getTelegramStatusDisplay(true);
+      expect(result).toContain('⚠️');
+      expect(result).toContain('credentials missing');
+    });
+
+    it('should return warning symbol when Telegram is enabled but only chat ID is missing', () => {
+      // Mock partially missing Telegram credentials
+      EnvironmentConfigManager.validateTelegramEnvironment.mockReturnValue({
+        isValid: false,
+        missingVars: ['TELEGRAM_CHAT_ID']
+      });
+
+      const result = (cliController as any).getTelegramStatusDisplay(true);
+      expect(result).toContain('⚠️');
+      expect(result).toContain('credentials missing');
+    });
+  });
+
+  describe('displayConfigurationSummary', () => {
+    it('should display configuration summary with Telegram disabled', () => {
+      const consoleSpy = jest.spyOn(console, 'log');
+      
+      const configWithTelegramDisabled = {
+        ...mockConfig,
+        notificationSettings: {
+          ...mockConfig.notificationSettings,
+          telegram: false
+        }
+      };
+
+      (cliController as any).displayConfigurationSummary(configWithTelegramDisabled);
+
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Telegram: ✗'));
+    });
+
+    it('should display configuration summary with Telegram enabled and credentials valid', () => {
+      const consoleSpy = jest.spyOn(console, 'log');
+      
+      // Mock valid Telegram credentials
+      EnvironmentConfigManager.validateTelegramEnvironment.mockReturnValue({
+        isValid: true,
+        missingVars: []
+      });
+
+      const configWithTelegramEnabled = {
+        ...mockConfig,
+        notificationSettings: {
+          ...mockConfig.notificationSettings,
+          telegram: true
+        }
+      };
+
+      (cliController as any).displayConfigurationSummary(configWithTelegramEnabled);
+
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Telegram: ✓'));
+    });
+
+    it('should display configuration summary with Telegram enabled but credentials missing', () => {
+      const consoleSpy = jest.spyOn(console, 'log');
+      
+      // Mock missing Telegram credentials
+      EnvironmentConfigManager.validateTelegramEnvironment.mockReturnValue({
+        isValid: false,
+        missingVars: ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID']
+      });
+
+      const configWithTelegramEnabled = {
+        ...mockConfig,
+        notificationSettings: {
+          ...mockConfig.notificationSettings,
+          telegram: true
+        }
+      };
+
+      (cliController as any).displayConfigurationSummary(configWithTelegramEnabled);
+
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Telegram: ⚠️  (credentials missing)'));
+    });
+
+    it('should display all notification settings correctly', () => {
+      const consoleSpy = jest.spyOn(console, 'log');
+      
+      const configWithAllNotifications = {
+        ...mockConfig,
+        notificationSettings: {
+          desktop: true,
+          audio: false,
+          logFile: true,
+          telegram: false
+        }
+      };
+
+      (cliController as any).displayConfigurationSummary(configWithAllNotifications);
+
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Desktop: ✓'));
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Audio: ✗'));
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Log File: ✓'));
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Telegram: ✗'));
+    });
+
+    it('should call getTelegramStatusDisplay for Telegram status', () => {
+      const getTelegramStatusDisplaySpy = jest.spyOn(cliController as any, 'getTelegramStatusDisplay');
+      
+      const configWithTelegram = {
+        ...mockConfig,
+        notificationSettings: {
+          ...mockConfig.notificationSettings,
+          telegram: true
+        }
+      };
+
+      (cliController as any).displayConfigurationSummary(configWithTelegram);
+
+      expect(getTelegramStatusDisplaySpy).toHaveBeenCalledWith(true);
+    });
+
+    it('should display configuration summary with undefined telegram setting', () => {
+      const consoleSpy = jest.spyOn(console, 'log');
+      
+      const configWithUndefinedTelegram = {
+        ...mockConfig,
+        notificationSettings: {
+          ...mockConfig.notificationSettings,
+          telegram: undefined
+        }
+      };
+
+      (cliController as any).displayConfigurationSummary(configWithUndefinedTelegram);
+
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Telegram: ✗'));
     });
   });
 });

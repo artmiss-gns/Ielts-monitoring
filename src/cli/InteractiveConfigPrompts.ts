@@ -1,6 +1,7 @@
 import * as readline from 'readline';
 import chalk from 'chalk';
 import { MonitorConfig } from '../models/types';
+import { EnvironmentConfigManager } from '../services/EnvironmentConfigManager';
 
 /**
  * Interactive configuration prompts for CLI setup
@@ -244,14 +245,58 @@ export class InteractiveConfigPrompts {
       defaultSettings.logFile
     );
 
+    const telegram = await this.promptForTelegramNotifications(defaultSettings.telegram);
+
     // Ensure at least one notification method is enabled
-    if (!desktop && !audio && !logFile) {
+    if (!desktop && !audio && !logFile && !telegram) {
       console.log(chalk.yellow('⚠️  At least one notification method must be enabled'));
       console.log(chalk.gray('Enabling log file notifications\n'));
-      return { desktop, audio, logFile: true };
+      return { desktop, audio, logFile: true, telegram };
     }
 
-    return { desktop, audio, logFile };
+    return { desktop, audio, logFile, telegram };
+  }
+
+  /**
+   * Prompt for Telegram notification settings with credential status awareness
+   */
+  private async promptForTelegramNotifications(current?: boolean): Promise<boolean> {
+    const telegramValidation = EnvironmentConfigManager.validateTelegramEnvironment();
+    const hasCredentials = telegramValidation.isValid;
+    
+    // Set default based on credential availability, or use current setting
+    const defaultValue = current !== undefined ? current : hasCredentials;
+
+    console.log(chalk.cyan('📱 Telegram notifications:'));
+    
+    // Display credential status with informative messages
+    if (hasCredentials) {
+      console.log(chalk.green('✅ Telegram credentials detected'));
+      console.log(chalk.gray('   Bot token and chat ID are configured'));
+    } else {
+      console.log(chalk.yellow('⚠️  Telegram credentials not configured'));
+      console.log(chalk.gray('   Missing environment variables: ' + telegramValidation.missingVars.join(', ')));
+      console.log(chalk.gray('   You can still enable this for future use'));
+    }
+
+    const enabled = await this.promptForBoolean(
+      'Enable Telegram notifications', 
+      defaultValue
+    );
+
+    // Show warning if enabled but credentials are missing
+    if (enabled && !hasCredentials) {
+      console.log(chalk.yellow('⚠️  Telegram notifications enabled but credentials are missing'));
+      console.log(chalk.gray('   To configure Telegram:'));
+      console.log(chalk.gray('   1. Create a bot via @BotFather on Telegram'));
+      console.log(chalk.gray('   2. Set TELEGRAM_BOT_TOKEN environment variable'));
+      console.log(chalk.gray('   3. Set TELEGRAM_CHAT_ID environment variable'));
+      console.log(chalk.gray('   4. Restart the monitor to use Telegram notifications\n'));
+    } else if (enabled && hasCredentials) {
+      console.log(chalk.green('✅ Telegram notifications will be active\n'));
+    }
+
+    return enabled;
   }
 
   /**

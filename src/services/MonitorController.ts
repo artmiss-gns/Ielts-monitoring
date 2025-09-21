@@ -414,21 +414,47 @@ export class MonitorController extends EventEmitter {
         detectionResult.newAvailableAppointments
       );
       
+      // Enhanced logging for notification decisions
+      if (detectionResult.newAvailableAppointments.length > 0) {
+        const notificationDecisions = this.appointmentDetection.getNotificationDecisionDetails(
+          detectionResult.newAvailableAppointments
+        );
+        
+        console.log(`🔍 Notification Decision Analysis:`);
+        notificationDecisions.forEach((decision, index) => {
+          const statusIcon = decision.shouldNotify ? '✅' : '🔕';
+          console.log(`   ${index + 1}. ${statusIcon} ${decision.appointmentKey} - ${decision.reason}`);
+          if (decision.lastNotificationTime) {
+            console.log(`      Last notified: ${decision.lastNotificationTime.toLocaleString()}`);
+          }
+          if (decision.notificationCount > 0) {
+            console.log(`      Total notifications: ${decision.notificationCount}`);
+          }
+        });
+      }
+      
       if (notifiableAppointments.length > 0) {
         await this.sendNotifications(notifiableAppointments);
         this.emit('new-appointments', notifiableAppointments);
         
         // Mark appointments as notified
-        await this.appointmentDetection.markAsNotified(
-          notifiableAppointments.map(apt => apt.id)
-        );
+        await this.appointmentDetection.markAsNotified(notifiableAppointments);
       } else if (detectionResult.newAvailableAppointments.length > 0) {
-        // Log when notifications are suppressed due to duplicate prevention
+        // Enhanced logging when notifications are suppressed due to duplicate prevention
+        const suppressedCount = detectionResult.newAvailableAppointments.length - notifiableAppointments.length;
         await this.statusLogger.logWarn('Notification suppressed: Duplicate prevention', {
           newAvailableCount: detectionResult.newAvailableAppointments.length,
-          notifiableCount: notifiableAppointments.length
+          notifiableCount: notifiableAppointments.length,
+          suppressedCount: suppressedCount,
+          suppressedAppointments: detectionResult.newAvailableAppointments
+            .filter(apt => !notifiableAppointments.includes(apt))
+            .map(apt => this.appointmentDetection.generateAppointmentKey ? 
+              this.appointmentDetection.generateAppointmentKey(apt) : 
+              `${apt.date}-${apt.time}-${apt.city}`
+            )
         });
-        console.log(`🔕 ${detectionResult.newAvailableAppointments.length} new available appointment(s) found but notifications suppressed (already notified)`);
+        console.log(`🔕 ${suppressedCount} appointment(s) found but notifications suppressed (duplicate prevention)`);
+        console.log(`📧 ${notifiableAppointments.length} appointment(s) eligible for notification`);
       }
 
       // Log next check time

@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import { MonitorController, MonitorStatus } from '../services/MonitorController';
 import { ConfigurationManager } from '../services/ConfigurationManager';
 import { DataInspectionService } from '../services/DataInspectionService';
-import { DataStorageService } from '../services/DataStorageService';
+
 import { TelegramNotifier } from '../services/TelegramNotifier';
 import { EnvironmentConfigManager } from '../services/EnvironmentConfigManager';
 // import { StatusLoggerService } from '../services/StatusLoggerService'; // TODO: Import when needed
@@ -18,7 +18,7 @@ export class CLIController {
   private monitorController: MonitorController;
   private configManager: ConfigurationManager;
   private dataInspectionService: DataInspectionService;
-  private dataStorageService: DataStorageService;
+
   // private statusLogger: StatusLoggerService; // TODO: Use for advanced logging features
   private interactivePrompts: InteractiveConfigPrompts;
   private statusDisplay: StatusDisplay;
@@ -28,7 +28,7 @@ export class CLIController {
     this.monitorController = new MonitorController();
     this.configManager = new ConfigurationManager();
     this.dataInspectionService = new DataInspectionService();
-    this.dataStorageService = new DataStorageService();
+
     // this.statusLogger = new StatusLoggerService(); // TODO: Initialize when needed
     this.interactivePrompts = new InteractiveConfigPrompts();
     this.statusDisplay = new StatusDisplay();
@@ -682,8 +682,24 @@ export class CLIController {
     console.log(`  • Desktop: ${config.notificationSettings.desktop ? chalk.green('✓') : chalk.red('✗')}`);
     console.log(`  • Audio: ${config.notificationSettings.audio ? chalk.green('✓') : chalk.red('✗')}`);
     console.log(`  • Log File: ${config.notificationSettings.logFile ? chalk.green('✓') : chalk.red('✗')}`);
-    console.log(`  • Telegram: ${config.notificationSettings.telegram ? chalk.green('✓') : chalk.red('✗')}`);
+    console.log(`  • Telegram: ${this.getTelegramStatusDisplay(config.notificationSettings.telegram)}`);
     console.log(chalk.gray('─'.repeat(40)) + '\n');
+  }
+
+  /**
+   * Get Telegram status display with appropriate symbols and warnings
+   */
+  private getTelegramStatusDisplay(enabled?: boolean): string {
+    if (!enabled) {
+      return chalk.red('✗');
+    }
+    
+    const telegramValidation = EnvironmentConfigManager.validateTelegramEnvironment();
+    if (telegramValidation.isValid) {
+      return chalk.green('✓');
+    } else {
+      return chalk.yellow('⚠️  (credentials missing)');
+    }
   }
 
   /**
@@ -978,8 +994,141 @@ export class CLIController {
     console.log(`Telegram: ${telegramConfigured ? 'Configured' : 'Not configured'}`);
   }
 
+
+
   /**
-   * Handle clear command - clear all stored appointment and notification data
+   * Handle notification tracking command - show notification tracking status and statistics
+   */
+  async notificationTrackingCommand(options: { 
+    detailed?: boolean; 
+    json?: boolean;
+    stats?: boolean;
+    history?: string;
+    recent?: string;
+  }): Promise<void> {
+    console.log(chalk.blue('🔔 Notification Tracking Status\n'));
+
+    try {
+      // Initialize appointment detection service to access tracking data
+      const appointmentDetection = new (await import('../services/AppointmentDetectionService')).AppointmentDetectionService();
+      await appointmentDetection.initialize();
+
+      if (options.history) {
+        // Show history for specific appointment
+        const history = appointmentDetection.getAppointmentHistory(options.history);
+        
+        if (!history) {
+          console.log(chalk.yellow(`⚠️  No tracking history found for appointment ID: ${options.history}`));
+          return;
+        }
+
+        if (options.json) {
+          console.log(JSON.stringify(history, null, 2));
+          return;
+        }
+
+        console.log(chalk.blue(`📋 Appointment History: ${options.history}`));
+        console.log(chalk.gray('─'.repeat(60)));
+        console.log(`${chalk.cyan('Current Status:')} ${history.appointment.status}`);
+        console.log(`${chalk.cyan('First Seen:')} ${history.firstSeen.toLocaleString()}`);
+        console.log(`${chalk.cyan('Last Seen:')} ${history.lastSeen.toLocaleString()}`);
+        console.log(`${chalk.cyan('Notifications Sent:')} ${history.notificationsSent}`);
+        
+        console.log(chalk.blue('\n📊 Status History:'));
+        history.statusHistory.forEach((change, index) => {
+          const statusColor = change.newStatus === 'available' ? chalk.green : chalk.yellow;
+          console.log(`   ${index + 1}. ${change.timestamp.toLocaleString()} - ${change.previousStatus} → ${statusColor(change.newStatus)} (${change.reason})`);
+        });
+        
+        return;
+      }
+
+      // Get tracking statistics
+      const stats = appointmentDetection.getTrackingStatistics();
+      
+      if (options.json) {
+        const recentMinutes = parseInt(options.recent || '60', 10);
+        const recentChanges = appointmentDetection.getRecentStatusChanges(recentMinutes);
+        
+        console.log(JSON.stringify({
+          statistics: stats,
+          recentStatusChanges: recentChanges
+        }, null, 2));
+        return;
+      }
+
+      // Display statistics
+      console.log(chalk.blue('📊 Notification Tracking Statistics:'));
+      console.log(chalk.gray('─'.repeat(50)));
+      console.log(`${chalk.cyan('Total Tracked Appointments:')} ${stats.totalTracked}`);
+      console.log(`${chalk.cyan('Currently Available:')} ${chalk.green(stats.availableCount.toString())}`);
+      console.log(`${chalk.cyan('Currently Filled:')} ${chalk.yellow(stats.filledCount.toString())}`);
+      console.log(`${chalk.cyan('Currently Pending:')} ${chalk.blue(stats.pendingCount.toString())}`);
+      console.log(`${chalk.cyan('Not Registerable:')} ${chalk.red(stats.notRegistrableCount.toString())}`);
+      console.log(`${chalk.cyan('Total Notifications Sent:')} ${stats.totalNotificationsSent}`);
+      console.log(`${chalk.cyan('Notified Appointment Keys:')} ${stats.notifiedAppointmentKeysCount}`);
+      
+      if (stats.averageTrackingDuration > 0) {
+        console.log(`${chalk.cyan('Average Tracking Duration:')} ${this.formatDuration(stats.averageTrackingDuration)}`);
+      }
+
+      if (options.stats) {
+        return; // Only show stats, not detailed information
+      }
+
+      // Show recent status changes
+      const recentMinutes = parseInt(options.recent || '60', 10);
+      const recentChanges = appointmentDetection.getRecentStatusChanges(recentMinutes);
+      
+      if (recentChanges.length > 0) {
+        console.log(chalk.blue(`\n🔄 Recent Status Changes (last ${recentMinutes} minutes):`));
+        console.log(chalk.gray('─'.repeat(50)));
+        
+        recentChanges.slice(0, 10).forEach((change, index) => {
+          const statusColor = change.newStatus === 'available' ? chalk.green : chalk.yellow;
+          console.log(`   ${index + 1}. ${change.timestamp.toLocaleString()} - ${change.previousStatus} → ${statusColor(change.newStatus)}`);
+          if (options.detailed) {
+            console.log(`      Reason: ${change.reason}`);
+          }
+        });
+        
+        if (recentChanges.length > 10) {
+          console.log(`   ... and ${recentChanges.length - 10} more changes`);
+        }
+      } else {
+        console.log(chalk.yellow(`\n📭 No status changes in the last ${recentMinutes} minutes`));
+      }
+
+      // Show detailed tracking information if requested
+      if (options.detailed) {
+        console.log(chalk.blue('\n🔍 Detailed Tracking Information:'));
+        console.log(chalk.gray('─'.repeat(50)));
+        
+        // Show notification decision details for recent appointments
+        const currentStatus = await this.monitorController.getStatus();
+        if (currentStatus.session) {
+          console.log(`${chalk.cyan('Current Session:')} ${currentStatus.session.sessionId}`);
+          console.log(`${chalk.cyan('Session Start:')} ${currentStatus.session.startTime.toLocaleString()}`);
+          console.log(`${chalk.cyan('Checks Performed:')} ${currentStatus.session.checksPerformed}`);
+          console.log(`${chalk.cyan('Session Notifications:')} ${currentStatus.session.notificationsSent}`);
+        }
+        
+        console.log(chalk.gray('\n💡 Use --history <appointmentId> to see detailed history for a specific appointment'));
+      }
+
+      console.log(chalk.gray('\n💡 Usage hints:'));
+      console.log(chalk.gray('  • Use --detailed for comprehensive tracking information'));
+      console.log(chalk.gray('  • Use --stats to show only statistics'));
+      console.log(chalk.gray('  • Use --recent <minutes> to adjust recent changes timeframe'));
+      console.log(chalk.gray('  • Use --json for machine-readable output'));
+
+    } catch (error) {
+      throw new Error(`Failed to get notification tracking status: ${error instanceof Error ? error.message : error}`);
+    }
+  }
+
+  /**
+   * Handle clear command - clear stored data
    */
   async clearCommand(options: { 
     appointments?: boolean; 
@@ -988,36 +1137,39 @@ export class CLIController {
     all?: boolean;
     force?: boolean;
   }): Promise<void> {
-    console.log(chalk.blue('🗑️  IELTS Monitor Data Clearing\n'));
+    console.log(chalk.blue('🧹 Clear Stored Data\n'));
 
     try {
       // Determine what to clear
-      const clearAppointments = options.all || options.appointments;
-      const clearNotifications = options.all || options.notifications;
-      const clearInspection = options.all || options.inspection;
+      const clearAll = options.all;
+      const clearAppointments = clearAll || options.appointments;
+      const clearNotifications = clearAll || options.notifications;
+      const clearInspection = clearAll || options.inspection;
 
-      // If no specific options, default to clearing appointments only
-      const shouldClearAppointments = clearAppointments || (!clearNotifications && !clearInspection);
-      const shouldClearNotifications = clearNotifications;
-      const shouldClearInspection = clearInspection;
+      // If no specific options, default to clearing all
+      const shouldClearAll = !clearAppointments && !clearNotifications && !clearInspection;
+      
+      if (shouldClearAll) {
+        console.log(chalk.yellow('No specific data type specified. This will clear ALL stored data.'));
+      }
 
       // Show what will be cleared
-      console.log(chalk.yellow('📋 The following data will be cleared:'));
-      if (shouldClearAppointments) {
-        console.log(chalk.gray('  • Previous appointment snapshots (used for detecting new appointments)'));
+      console.log(chalk.blue('📋 Data to be cleared:'));
+      if (shouldClearAll || clearAppointments) {
+        console.log('  • Appointment tracking data');
+        console.log('  • Previous appointment snapshots');
       }
-      if (shouldClearNotifications) {
-        console.log(chalk.gray('  • Notification history'));
+      if (shouldClearAll || clearNotifications) {
+        console.log('  • Notification history');
+        console.log('  • Notified appointment keys');
       }
-      if (shouldClearInspection) {
-        console.log(chalk.gray('  • Inspection data and debugging information'));
+      if (shouldClearAll || clearInspection) {
+        console.log('  • Inspection/debugging data');
+        console.log('  • Raw HTML analysis data');
       }
 
-      // Confirmation prompt (unless --force is used)
+      // Confirmation prompt (unless forced)
       if (!options.force) {
-        console.log(chalk.yellow('\n⚠️  Warning: This action cannot be undone!'));
-        console.log(chalk.gray('After clearing appointment data, the next monitoring run will treat all found appointments as "new".'));
-        
         const readline = await import('readline');
         const rl = readline.createInterface({
           input: process.stdin,
@@ -1025,8 +1177,9 @@ export class CLIController {
         });
 
         const answer = await new Promise<string>((resolve) => {
-          rl.question(chalk.cyan('\nDo you want to continue? (y/N): '), resolve);
+          rl.question(chalk.yellow('\nAre you sure you want to clear this data? (y/N): '), resolve);
         });
+        
         rl.close();
 
         if (answer.toLowerCase() !== 'y' && answer.toLowerCase() !== 'yes') {
@@ -1035,36 +1188,33 @@ export class CLIController {
         }
       }
 
-      console.log(chalk.blue('\n🧹 Clearing data...'));
+      console.log(chalk.blue('\n🔄 Clearing data...'));
 
-      // Clear appointment and notification data
-      if (shouldClearAppointments || shouldClearNotifications) {
-        if (shouldClearAppointments && shouldClearNotifications) {
-          await this.dataStorageService.clearAllData();
-          console.log(chalk.green('✅ Cleared all appointment and notification data'));
-        } else if (shouldClearAppointments) {
-          // Clear only appointments - we need to implement this method
-          await this.clearAppointmentDataOnly();
-          console.log(chalk.green('✅ Cleared appointment data'));
-        } else if (shouldClearNotifications) {
-          // Clear only notifications - we need to implement this method
-          await this.clearNotificationDataOnly();
-          console.log(chalk.green('✅ Cleared notification history'));
-        }
+      let clearedCount = 0;
+
+      // Clear appointment data
+      if (shouldClearAll || clearAppointments) {
+        await this.clearAppointmentDataOnly();
+        console.log(chalk.green('✅ Appointment data cleared'));
+        clearedCount++;
+      }
+
+      // Clear notification data
+      if (shouldClearAll || clearNotifications) {
+        await this.clearNotificationDataOnly();
+        console.log(chalk.green('✅ Notification data cleared'));
+        clearedCount++;
       }
 
       // Clear inspection data
-      if (shouldClearInspection) {
-        await this.dataInspectionService.clearAllInspectionData();
-        console.log(chalk.green('✅ Cleared inspection data'));
+      if (shouldClearAll || clearInspection) {
+        await this.clearInspectionDataOnly();
+        console.log(chalk.green('✅ Inspection data cleared'));
+        clearedCount++;
       }
 
-      console.log(chalk.green('\n🎉 Data clearing completed successfully!'));
-      
-      if (shouldClearAppointments) {
-        console.log(chalk.yellow('\n💡 Next monitoring run will treat all appointments as new.'));
-        console.log(chalk.gray('This means you may receive notifications for appointments that were previously detected.'));
-      }
+      console.log(chalk.green(`\n✅ Successfully cleared ${clearedCount} data type(s)`));
+      console.log(chalk.gray('The monitor will start fresh on the next run.'));
 
     } catch (error) {
       throw new Error(`Failed to clear data: ${error instanceof Error ? error.message : error}`);
@@ -1072,15 +1222,38 @@ export class CLIController {
   }
 
   /**
-   * Clear only appointment data (keep notifications)
+   * Clear only appointment data (keep notifications and inspection data)
    */
   private async clearAppointmentDataOnly(): Promise<void> {
+    const fs = await import('fs/promises');
+    
+    const filesToClear = [
+      'data/appointments.json',
+      'data/appointment-tracking.json'
+    ];
+
+    for (const filePath of filesToClear) {
+      try {
+        await fs.unlink(filePath);
+      } catch (error) {
+        // File doesn't exist, which is fine
+        if ((error as any).code !== 'ENOENT') {
+          throw error;
+        }
+      }
+    }
+  }
+
+  /**
+   * Clear only inspection data (keep appointments and notifications)
+   */
+  private async clearInspectionDataOnly(): Promise<void> {
     const fs = await import('fs/promises');
     const path = await import('path');
     
     try {
-      const appointmentsPath = path.join('data', 'appointments.json');
-      await fs.unlink(appointmentsPath);
+      const inspectionPath = path.join('data', 'inspection-data.json');
+      await fs.unlink(inspectionPath);
     } catch (error) {
       // File doesn't exist, which is fine
       if ((error as any).code !== 'ENOENT') {
@@ -1094,15 +1267,20 @@ export class CLIController {
    */
   private async clearNotificationDataOnly(): Promise<void> {
     const fs = await import('fs/promises');
-    const path = await import('path');
     
-    try {
-      const notificationsPath = path.join('data', 'notifications.json');
-      await fs.unlink(notificationsPath);
-    } catch (error) {
-      // File doesn't exist, which is fine
-      if ((error as any).code !== 'ENOENT') {
-        throw error;
+    const filesToClear = [
+      'data/notifications.json',
+      'data/notified-appointments.json'
+    ];
+
+    for (const filePath of filesToClear) {
+      try {
+        await fs.unlink(filePath);
+      } catch (error) {
+        // File doesn't exist, which is fine
+        if ((error as any).code !== 'ENOENT') {
+          throw error;
+        }
       }
     }
   }

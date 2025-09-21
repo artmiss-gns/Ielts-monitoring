@@ -112,7 +112,7 @@ async function demonstrateEnhancedDetection() {
   
   // Mark some as notified
   if (notifiableAppointments.length > 0) {
-    await detectionService.markAsNotified([notifiableAppointments[0].id]);
+    await detectionService.markAsNotified([notifiableAppointments[0]]);
     console.log(`✅ Marked ${notifiableAppointments[0].id} as notified`);
   }
   

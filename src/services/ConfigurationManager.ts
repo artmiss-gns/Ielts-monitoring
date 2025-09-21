@@ -20,6 +20,10 @@ export class ConfigurationManager {
    * Creates the default configuration template
    */
   private createDefaultConfig(): MonitorConfig {
+    // Check for Telegram credentials to set appropriate default
+    const telegramValidation = EnvironmentConfigManager.validateTelegramEnvironment();
+    const telegramDefault = telegramValidation.isValid;
+
     return {
       city: ['isfahan'],
       examModel: ['cdielts'],
@@ -30,7 +34,7 @@ export class ConfigurationManager {
         desktop: false, // Disabled for server deployment
         audio: false, // Disabled for server deployment
         logFile: true,
-        telegram: false // Will be enabled if credentials are provided
+        telegram: telegramDefault // Enabled if credentials are available
       },
       security: {
         enableSecureLogging: true,
@@ -86,6 +90,7 @@ export class ConfigurationManager {
   private autoEnableTelegramIfConfigured(config: MonitorConfig): MonitorConfig {
     const telegramValidation = EnvironmentConfigManager.validateTelegramEnvironment();
     
+    // Only auto-enable if credentials are valid and Telegram is currently disabled
     if (telegramValidation.isValid && !config.notificationSettings.telegram) {
       console.log('🔔 Telegram credentials detected - automatically enabling Telegram notifications');
       config.notificationSettings.telegram = true;

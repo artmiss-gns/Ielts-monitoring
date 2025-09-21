@@ -206,6 +206,25 @@ program
     }
   });
 
+// Notification tracking command
+program
+  .command('notifications')
+  .alias('notify')
+  .description('Show notification tracking status and statistics')
+  .option('-d, --detailed', 'show detailed notification tracking information')
+  .option('-j, --json', 'output results in JSON format')
+  .option('-s, --stats', 'show notification statistics only')
+  .option('-h, --history <appointmentId>', 'show notification history for specific appointment')
+  .option('-r, --recent <minutes>', 'show recent status changes (default: 60 minutes)', '60')
+  .action(async (options) => {
+    try {
+      await cliController.notificationTrackingCommand(options);
+    } catch (error) {
+      console.error(chalk.red('Error viewing notification tracking:'), error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
 // Clear command
 program
   .command('clear')

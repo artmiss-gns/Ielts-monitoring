@@ -8,16 +8,19 @@ describe('AppointmentDetectionService', () => {
   let service: AppointmentDetectionService;
   let testDataDir: string;
   let testTrackingFile: string;
+  let testNotificationFile: string;
 
   beforeEach(async () => {
     // Create a temporary directory for test data
     testDataDir = path.join(__dirname, '../../test-data');
     testTrackingFile = path.join(testDataDir, 'test-appointment-tracking.json');
+    testNotificationFile = path.join(testDataDir, 'test-notified-appointments.json');
     
     await fs.mkdir(testDataDir, { recursive: true });
     
     service = new AppointmentDetectionService({
       trackingDataFile: testTrackingFile,
+      notificationTrackingFile: testNotificationFile,
       maxTrackingDays: 30,
       statusChangeThreshold: 5
     });
@@ -29,6 +32,7 @@ describe('AppointmentDetectionService', () => {
     // Clean up test data
     try {
       await fs.unlink(testTrackingFile);
+      await fs.unlink(testNotificationFile);
       await fs.rmdir(testDataDir);
     } catch (error) {
       // Ignore cleanup errors
@@ -152,7 +156,7 @@ describe('AppointmentDetectionService', () => {
       await service.processAppointments(checkResult);
       
       // Mark as notified
-      await service.markAsNotified(['apt-1']);
+      await service.markAsNotified([appointment]);
       
       const notifiable = service.getNotifiableAppointments([appointment]);
       expect(notifiable).toHaveLength(0);
@@ -195,7 +199,7 @@ describe('AppointmentDetectionService', () => {
       const checkResult = createMockCheckResult([appointment]);
       await service.processAppointments(checkResult);
       
-      await service.markAsNotified(['apt-1']);
+      await service.markAsNotified([appointment]);
       
       const stats = service.getTrackingStatistics();
       expect(stats.totalNotificationsSent).toBe(1);
@@ -231,7 +235,7 @@ describe('AppointmentDetectionService', () => {
       const appointment = createMockAppointment('apt-1', 'available');
       const checkResult = createMockCheckResult([appointment]);
       await service.processAppointments(checkResult);
-      await service.markAsNotified(['apt-1']);
+      await service.markAsNotified([appointment]);
       
       // Create new service instance
       const newService = new AppointmentDetectionService({
