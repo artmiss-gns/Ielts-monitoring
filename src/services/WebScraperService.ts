@@ -1313,7 +1313,19 @@ export class WebScraperService {
       
       const apiUrl = this.baseUrl.replace('/ielts/timetable', '') + '/api/appointments';
       const response = await axios.default.get(apiUrl);
-      const appointments = response.data;
+      let appointments = response.data;
+
+      // Ensure appointments is an array
+      if (!Array.isArray(appointments)) {
+        console.log(`⚠️  API returned non-array data:`, typeof appointments);
+        // If it's an object with appointments property, extract it
+        if (appointments && appointments.appointments && Array.isArray(appointments.appointments)) {
+          appointments = appointments.appointments;
+        } else {
+          // If no valid appointments found, return empty array
+          appointments = [];
+        }
+      }
 
       // Apply filters to the appointments
       const filteredAppointments = this.applyFiltersToAppointments(appointments, filters);

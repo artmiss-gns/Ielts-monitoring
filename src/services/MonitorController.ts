@@ -357,7 +357,9 @@ export class MonitorController extends EventEmitter {
       await this.dataStorage.saveAppointments(checkResult.appointments);
 
       // Update session statistics
-      this.currentSession.checksPerformed++;
+      if (this.currentSession) {
+        this.currentSession.checksPerformed++;
+      }
       
       // Enhanced logging for detection results with comprehensive status information
       const checkEndTime = new Date();
