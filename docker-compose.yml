@@ -40,7 +40,7 @@ services:
     
     # Port mapping for health check and potential web interface
     ports:
-      - "3001:3001"
+      - "3001:3002"
     
     # Optional health check (uncomment if needed)
     healthcheck:
