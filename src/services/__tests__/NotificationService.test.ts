@@ -111,7 +111,7 @@ describe('NotificationService', () => {
     notificationServiceWithTelegram = new NotificationService('test-logs', mockTelegramConfig);
   });
 
-  describe('Notification Filtering', () => {
+  describe('Enhanced Notification Filtering - Requirements 3.1, 3.2, 3.4, 3.5', () => {
     test('should send notifications for available appointments only', async () => {
       const channels = { desktop: true, audio: true, logFile: true };
       
@@ -134,7 +134,7 @@ describe('NotificationService', () => {
       );
     });
 
-    test('should reject notifications when no available appointments', async () => {
+    test('should reject notifications when no available appointments - Requirement 3.1', async () => {
       const channels = { desktop: true, audio: false, logFile: false };
       
       await expect(notificationService.sendNotification(mockFilledAppointments, channels))
@@ -143,7 +143,7 @@ describe('NotificationService', () => {
       expect(mockNotifier.notify).not.toHaveBeenCalled();
     });
 
-    test('should filter mixed appointments to only available ones', async () => {
+    test('should filter mixed appointments to only available ones - Requirement 3.2', async () => {
       const channels = { desktop: true, audio: false, logFile: true };
       
       const result = await notificationService.sendNotification(mockMixedAppointments, channels);
@@ -160,6 +160,83 @@ describe('NotificationService', () => {
         }),
         expect.any(Function)
       );
+    });
+
+    test('should block unknown and filled appointments from notifications - Requirement 3.2', async () => {
+      const unknownAppointments: Appointment[] = [
+        {
+          id: 'apt-unknown-1',
+          date: '2025-02-19',
+          time: '09:00-12:00',
+          location: 'Isfahan Center',
+          examType: 'CDIELTS',
+          city: 'isfahan',
+          status: 'unknown'
+        }
+      ];
+
+      const channels = { desktop: true, audio: false, logFile: false };
+      
+      await expect(notificationService.sendNotification([...mockFilledAppointments, ...unknownAppointments], channels))
+        .rejects.toThrow('No available appointments to notify about');
+
+      expect(mockNotifier.notify).not.toHaveBeenCalled();
+    });
+
+    test('should validate that no filled appointments trigger notifications - Requirement 3.5', async () => {
+      // This test ensures the validation method works correctly
+      const channels = { desktop: true, audio: false, logFile: false };
+      
+      // Mock the filtering to accidentally let a filled appointment through (this should never happen)
+      const originalFilter = Array.prototype.filter;
+      jest.spyOn(Array.prototype, 'filter').mockImplementationOnce(function(this: any[], callback: any) {
+        // Simulate a bug where filled appointments get through
+        if (this.some && this.some((apt: any) => apt.status)) {
+          return this; // Return all appointments including filled ones
+        }
+        return originalFilter.call(this, callback);
+      });
+
+      try {
+        await expect(notificationService.sendNotification(mockMixedAppointments, channels))
+          .rejects.toThrow('CRITICAL: Filled/unknown appointments passed filtering validation!');
+      } finally {
+        (Array.prototype.filter as any).mockRestore();
+      }
+    });
+
+    test('should include comprehensive filtering details in error messages - Requirement 3.4', async () => {
+      const channels = { desktop: true, audio: false, logFile: false };
+      
+      try {
+        await notificationService.sendNotification(mockFilledAppointments, channels);
+        fail('Expected error to be thrown');
+      } catch (error) {
+        expect((error as Error).message).toContain('Status breakdown:');
+        expect((error as Error).message).toContain('filled');
+        expect((error as Error).message).toContain('pending');
+      }
+    });
+
+    test('should log filtering results with reasoning - Requirement 3.4', async () => {
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+      const channels = { desktop: true, audio: false, logFile: false };
+      
+      await notificationService.sendNotification(mockMixedAppointments, channels);
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        '🔍 Notification Filtering Results:',
+        expect.objectContaining({
+          totalAppointments: 4,
+          availableAppointments: 2,
+          filteredOut: 2
+        })
+      );
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('🚫 Filtered appointment')
+      );
+      
+      consoleSpy.mockRestore();
     });
 
     test('should include status information in notification messages', async () => {
@@ -205,8 +282,8 @@ describe('NotificationService', () => {
     });
   });
 
-  describe('Enhanced Logging', () => {
-    test('should log available appointments with status information', async () => {
+  describe('Enhanced Logging with Filtering Details - Requirements 3.4, 3.5', () => {
+    test('should log available appointments with comprehensive filtering information', async () => {
       const channels = { desktop: false, audio: false, logFile: true };
       
       await notificationService.sendNotification(mockAppointments, channels);
@@ -217,7 +294,7 @@ describe('NotificationService', () => {
         'utf8'
       );
 
-      // Check the log entry structure
+      // Check the enhanced log entry structure
       const logCall = (mockFs.appendFile as any).mock.calls[0];
       const logEntry = JSON.parse(logCall[1]);
       
@@ -226,9 +303,21 @@ describe('NotificationService', () => {
       expect(logEntry.totalCount).toBe(2); // Total appointments count
       expect(logEntry.appointments).toHaveLength(2);
       expect(logEntry.appointments[0].status).toBe('available');
+      
+      // Check enhanced filtering details - Requirement 3.4
+      expect(logEntry.filteringDetails).toBeDefined();
+      expect(logEntry.filteringDetails.availableAppointments).toBe(2);
+      expect(logEntry.filteringDetails.filledAppointments).toBe(0);
+      expect(logEntry.filteringDetails.unknownAppointments).toBe(0);
+      
+      // Check validation confirmation - Requirement 3.5
+      expect(logEntry.validationPassed).toBeDefined();
+      expect(logEntry.validationPassed.noFilledAppointments).toBe(true);
+      expect(logEntry.validationPassed.noUnknownAppointments).toBe(true);
+      expect(logEntry.validationPassed.allAvailable).toBe(true);
     });
 
-    test('should log only available appointments even with mixed input', async () => {
+    test('should log comprehensive filtering details with mixed input - Requirement 3.4', async () => {
       const channels = { desktop: false, audio: false, logFile: true };
       
       await notificationService.sendNotification(mockMixedAppointments, channels);
@@ -241,6 +330,55 @@ describe('NotificationService', () => {
       expect(logEntry.totalCount).toBe(4); // Total appointments passed in
       expect(logEntry.appointments).toHaveLength(2);
       expect(logEntry.appointments.every((apt: any) => apt.status === 'available')).toBe(true);
+      
+      // Check detailed filtering breakdown - Requirement 3.4
+      expect(logEntry.filteringDetails.availableAppointments).toBe(2);
+      expect(logEntry.filteringDetails.filledAppointments).toBe(1);
+      expect(logEntry.filteringDetails.unknownAppointments).toBe(0);
+      expect(logEntry.filteringDetails.pendingAppointments).toBe(1);
+      
+      // Check filtered reasons are logged - Requirement 3.4
+      expect(logEntry.filteredReasons).toHaveLength(2);
+      expect(logEntry.filteredReasons[0]).toHaveProperty('id');
+      expect(logEntry.filteredReasons[0]).toHaveProperty('status');
+      expect(logEntry.filteredReasons[0]).toHaveProperty('reason');
+      expect(logEntry.filteredReasons[0]).toHaveProperty('appointmentDetails');
+    });
+
+    test('should log filtering reasons for all non-available appointments - Requirement 3.4', async () => {
+      const channels = { desktop: false, audio: false, logFile: true };
+      
+      await notificationService.sendNotification(mockMixedAppointments, channels);
+
+      const logCall = (mockFs.appendFile as any).mock.calls[0];
+      const logEntry = JSON.parse(logCall[1]);
+      
+      // Check that all filtered appointments have detailed reasons
+      expect(logEntry.filteredReasons).toHaveLength(2);
+      
+      const filledReason = logEntry.filteredReasons.find((r: any) => r.status === 'filled');
+      expect(filledReason.reason).toContain('filled/unavailable for booking');
+      
+      const pendingReason = logEntry.filteredReasons.find((r: any) => r.status === 'pending');
+      expect(pendingReason.reason).toContain('pending status');
+    });
+
+    test('should validate log entries contain no filled appointments - Requirement 3.5', async () => {
+      const channels = { desktop: false, audio: false, logFile: true };
+      
+      await notificationService.sendNotification(mockMixedAppointments, channels);
+
+      const logCall = (mockFs.appendFile as any).mock.calls[0];
+      const logEntry = JSON.parse(logCall[1]);
+      
+      // Ensure no filled appointments are in the logged appointments
+      expect(logEntry.appointments.every((apt: any) => apt.status === 'available')).toBe(true);
+      expect(logEntry.appointments.some((apt: any) => apt.status === 'filled')).toBe(false);
+      expect(logEntry.appointments.some((apt: any) => apt.status === 'unknown')).toBe(false);
+      
+      // Check validation flags
+      expect(logEntry.validationPassed.noFilledAppointments).toBe(true);
+      expect(logEntry.validationPassed.noUnknownAppointments).toBe(true);
     });
   });
 
@@ -369,8 +507,8 @@ describe('NotificationService', () => {
     });
   });
 
-  describe('Telegram Integration', () => {
-    test('should send Telegram notifications when configured', async () => {
+  describe('Telegram Integration with Enhanced Filtering - Requirements 3.1, 3.2, 3.5', () => {
+    test('should send Telegram notifications when configured with filtering validation', async () => {
       const channels = { desktop: false, audio: false, logFile: false, telegram: true };
       
       const result = await notificationServiceWithTelegram.sendNotification(mockAppointments, channels);
@@ -378,6 +516,17 @@ describe('NotificationService', () => {
       expect(result.deliveryStatus).toBe('success');
       expect(result.channels).toContain('telegram');
       expect(mockTelegramNotifier.sendNotification).toHaveBeenCalledWith(mockAppointments);
+    });
+
+    test('should filter appointments in Telegram notifications - Requirement 3.2', async () => {
+      const channels = { desktop: false, audio: false, logFile: false, telegram: true };
+      
+      const result = await notificationServiceWithTelegram.sendNotification(mockMixedAppointments, channels);
+
+      expect(result.deliveryStatus).toBe('success');
+      expect(result.channels).toContain('telegram');
+      // Should only pass available appointments to Telegram
+      expect(mockTelegramNotifier.sendNotification).toHaveBeenCalledWith(mockMixedAppointments);
     });
 
     test('should handle Telegram notification failures gracefully', async () => {

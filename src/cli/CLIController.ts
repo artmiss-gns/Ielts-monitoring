@@ -9,6 +9,7 @@ import { EnvironmentConfigManager } from '../services/EnvironmentConfigManager';
 import { InteractiveConfigPrompts } from './InteractiveConfigPrompts';
 import { StatusDisplay } from './StatusDisplay';
 import { LogViewer } from './LogViewer';
+import { DetectionValidationCommand } from './DetectionValidationCommand';
 import { MonitorConfig, ValidationResult } from '../models/types';
 
 /**
@@ -23,6 +24,7 @@ export class CLIController {
   private interactivePrompts: InteractiveConfigPrompts;
   private statusDisplay: StatusDisplay;
   private logViewer: LogViewer;
+  private detectionValidationCommand: DetectionValidationCommand;
 
   constructor() {
     this.monitorController = new MonitorController();
@@ -33,9 +35,22 @@ export class CLIController {
     this.interactivePrompts = new InteractiveConfigPrompts();
     this.statusDisplay = new StatusDisplay();
     this.logViewer = new LogViewer();
+    this.detectionValidationCommand = new DetectionValidationCommand();
 
     // Setup event listeners for real-time updates
     this.setupEventListeners();
+  }
+
+  /**
+   * Cleanup resources
+   */
+  cleanup(): void {
+    try {
+      // The InteractiveConfigPrompts closes its readline interface after each use
+      // No additional cleanup needed for other services
+    } catch (error) {
+      // Ignore cleanup errors
+    }
   }
 
   /**
@@ -569,6 +584,270 @@ export class CLIController {
   }
 
   /**
+   * Handle debug-detection command - test appointment detection with detailed analysis
+   */
+  async debugDetectionCommand(options: {
+    url?: string;
+    city?: string;
+    examModel?: string;
+    months?: string;
+    detailed?: boolean;
+    json?: boolean;
+    showHtml?: boolean;
+    testServer?: boolean;
+  }): Promise<void> {
+    console.log(chalk.blue('🔍 Appointment Detection Debug Mode\n'));
+
+    try {
+      // Load configuration for defaults
+      let config: MonitorConfig;
+      try {
+        config = await this.configManager.loadConfig();
+      } catch {
+        config = this.configManager.getDefaultConfig();
+        console.log(chalk.yellow('⚠️  Using default configuration (no config file found)'));
+      }
+
+      // Determine target URL
+      let targetUrl: string;
+      if (options.testServer) {
+        targetUrl = 'http://localhost:3001';
+        console.log(chalk.blue('🧪 Using test simulation server'));
+      } else if (options.url) {
+        targetUrl = options.url;
+        console.log(chalk.blue(`🌐 Using custom URL: ${targetUrl}`));
+      } else {
+        targetUrl = config.baseUrl || 'https://irsafam.org/ielts/timetable';
+        console.log(chalk.blue(`🌐 Using configured URL: ${targetUrl}`));
+      }
+
+      // Build scan filters
+      const scanFilters = {
+        city: options.city ? options.city.split(',').map(c => c.trim()) : config.city,
+        examModel: options.examModel ? options.examModel.split(',').map(e => e.trim()) : config.examModel,
+        months: options.months ? options.months.split(',').map(m => parseInt(m.trim())) : config.months
+      };
+
+      console.log(chalk.blue('📋 Debug Parameters:'));
+      console.log(`   Target URL: ${targetUrl}`);
+      console.log(`   Cities: ${scanFilters.city.join(', ')}`);
+      console.log(`   Exam Models: ${scanFilters.examModel.join(', ')}`);
+      console.log(`   Months: ${scanFilters.months.map(m => this.getMonthName(m)).join(', ')}`);
+      console.log(`   Show HTML: ${options.showHtml ? 'Yes' : 'No'}`);
+      console.log(`   Detailed Analysis: ${options.detailed ? 'Yes' : 'No'}\n`);
+
+      // Check browser availability first (unless using test server)
+      if (!options.testServer && !targetUrl.includes('localhost')) {
+        console.log(chalk.blue('🔍 Checking browser availability...'));
+        const { WebScraperService } = await import('../services/WebScraperService');
+        const browserCheck = await WebScraperService.checkBrowserAvailability();
+        
+        if (!browserCheck.available) {
+          console.log(chalk.red('❌ Browser not available for web scraping'));
+          console.log(chalk.yellow('Error: ' + browserCheck.error));
+          console.log(chalk.blue('\n💡 Possible solutions:'));
+          browserCheck.suggestions.forEach((suggestion, index) => {
+            console.log(chalk.gray(`   ${index + 1}. ${suggestion}`));
+          });
+          console.log(chalk.blue('\n🧪 Alternative: Use --test-server flag to test with simulation data'));
+          return;
+        }
+        console.log(chalk.green('✅ Browser available'));
+      }
+
+      // Initialize web scraper with debug URL
+      const webScraper = new (await import('../services/WebScraperService')).WebScraperService(targetUrl);
+      
+      try {
+        await webScraper.initialize();
+      } catch (initError) {
+        console.log(chalk.red('❌ Failed to initialize browser'));
+        console.log(chalk.yellow('Error: ' + (initError instanceof Error ? initError.message : initError)));
+        return;
+      }
+
+      console.log(chalk.blue('🔄 Running detection analysis...'));
+      const startTime = Date.now();
+
+      try {
+        // Use the enhanced detection method to get detailed results
+        const checkResult = await webScraper.fetchAppointmentsWithStatus(scanFilters);
+        const duration = Date.now() - startTime;
+
+        // Get the latest inspection data for detailed analysis
+        const latestInspection = await this.dataInspectionService.getLatestInspectionData();
+
+        if (options.json) {
+          const debugOutput = {
+            debugInfo: {
+              targetUrl,
+              scanFilters,
+              duration,
+              timestamp: new Date().toISOString()
+            },
+            detectionResults: checkResult,
+            inspectionData: latestInspection?.data
+          };
+          console.log(JSON.stringify(debugOutput, null, 2));
+          return;
+        }
+
+        // Display detection results
+        console.log(chalk.green(`\n✅ Detection completed in ${duration}ms`));
+        
+        // Results Summary
+        console.log(chalk.blue('\n📊 Detection Results Summary:'));
+        console.log(chalk.gray('─'.repeat(50)));
+        console.log(`${chalk.cyan('Detection Status:')} ${this.getStatusColor(checkResult.type)(checkResult.type.toUpperCase())}`);
+        console.log(`${chalk.cyan('Total Elements Found:')} ${checkResult.appointmentCount}`);
+        console.log(`${chalk.cyan('Available Appointments:')} ${chalk.green(checkResult.availableCount.toString())}`);
+        console.log(`${chalk.cyan('Filled Appointments:')} ${chalk.yellow(checkResult.filledCount.toString())}`);
+        console.log(`${chalk.cyan('Processing Time:')} ${duration}ms`);
+
+        // Show detection strategy details if inspection data is available
+        if (latestInspection?.data && options.detailed) {
+          console.log(chalk.blue('\n🔍 Detection Strategy Analysis:'));
+          console.log(chalk.gray('─'.repeat(50)));
+          
+          // Check if this is enhanced inspection data
+          const enhancedData = latestInspection.data as any;
+          
+          // Show selector results if available
+          if (enhancedData.selectorResults) {
+            console.log(chalk.cyan('Selector Performance:'));
+            enhancedData.selectorResults.forEach((result: any) => {
+              const status = result.elementCount > 0 ? chalk.green('✓') : chalk.red('✗');
+              console.log(`   ${status} ${result.selector} (${result.strategy})`);
+              console.log(`     Elements: ${result.elementCount}, Time: ${Math.round(result.processingTime || 0)}ms`);
+            });
+          }
+
+          // Show status decisions if available
+          if (enhancedData.statusDecisions) {
+            console.log(chalk.cyan('\nStatus Detection Decisions:'));
+            enhancedData.statusDecisions.forEach((decision: any, index: number) => {
+              const statusColor = decision.finalStatus === 'available' ? chalk.green : chalk.yellow;
+              console.log(`   ${index + 1}. ${statusColor(decision.finalStatus.toUpperCase())}`);
+              console.log(`      Indicators: ${decision.indicators?.join(', ') || 'none'}`);
+              console.log(`      Reasoning: ${decision.reasoning || 'No reasoning provided'}`);
+              console.log(`      Confidence: ${Math.round((decision.confidenceScore || 0) * 100)}%`);
+            });
+          }
+
+          // Show validation results if available
+          if (enhancedData.validationChecks) {
+            console.log(chalk.cyan('\nValidation Results:'));
+            enhancedData.validationChecks.forEach((check: any) => {
+              const status = check.passed ? chalk.green('✓') : chalk.red('✗');
+              console.log(`   ${status} ${check.check}: ${check.details}`);
+            });
+          }
+        }
+
+        // Show appointment details
+        if (checkResult.appointments.length > 0) {
+          console.log(chalk.blue('\n📅 Detected Appointments:'));
+          console.log(chalk.gray('─'.repeat(50)));
+          
+          const availableAppointments = checkResult.appointments.filter(apt => apt.status === 'available');
+          const filledAppointments = checkResult.appointments.filter(apt => apt.status === 'filled');
+
+          if (availableAppointments.length > 0) {
+            console.log(chalk.green(`\n🎯 Available Appointments (${availableAppointments.length}):`));
+            availableAppointments.forEach((apt, index) => {
+              console.log(`   ${index + 1}. ${apt.date} ${apt.time} - ${apt.city} (${apt.examType})`);
+              console.log(`      Location: ${apt.location}`);
+              if (apt.price) {
+                console.log(`      Price: ${apt.price.toLocaleString()} Toman`);
+              }
+              if (options.detailed && 'statusIndicators' in apt) {
+                console.log(`      Status Indicators: ${(apt as any).statusIndicators?.join(', ') || 'none'}`);
+                console.log(`      Detection Method: ${(apt as any).detectionMethod || 'standard'}`);
+              }
+              if (options.showHtml && apt.rawHtml) {
+                const truncatedHtml = apt.rawHtml.length > 200 
+                  ? apt.rawHtml.substring(0, 200) + '...'
+                  : apt.rawHtml;
+                console.log(`      Raw HTML: ${chalk.gray(truncatedHtml)}`);
+              }
+            });
+          }
+
+          if (filledAppointments.length > 0) {
+            console.log(chalk.yellow(`\n📋 Filled Appointments (${filledAppointments.length}):`));
+            const displayCount = options.detailed ? filledAppointments.length : Math.min(filledAppointments.length, 3);
+            filledAppointments.slice(0, displayCount).forEach((apt, index) => {
+              console.log(`   ${index + 1}. ${apt.date} ${apt.time} - ${apt.city} (${apt.examType})`);
+              if (options.detailed && 'statusIndicators' in apt) {
+                console.log(`      Status Indicators: ${(apt as any).statusIndicators?.join(', ') || 'none'}`);
+              }
+              if (options.showHtml && apt.rawHtml) {
+                const truncatedHtml = apt.rawHtml.length > 200 
+                  ? apt.rawHtml.substring(0, 200) + '...'
+                  : apt.rawHtml;
+                console.log(`      Raw HTML: ${chalk.gray(truncatedHtml)}`);
+              }
+            });
+            if (!options.detailed && filledAppointments.length > 3) {
+              console.log(`   ... and ${filledAppointments.length - 3} more filled appointments`);
+            }
+          }
+        } else {
+          console.log(chalk.yellow('\n📭 No appointments detected'));
+          
+          if (latestInspection?.data?.detectedElements) {
+            console.log(chalk.blue('\n🔍 Element Detection Details:'));
+            latestInspection.data.detectedElements.forEach((element: string, index: number) => {
+              console.log(`   ${index + 1}. ${element}`);
+            });
+          }
+        }
+
+        // Show parsing notes and errors
+        if (latestInspection?.data && options.detailed) {
+          if (latestInspection.data.parsingNotes) {
+            console.log(chalk.blue('\n📝 Parsing Notes:'));
+            console.log(chalk.gray(latestInspection.data.parsingNotes));
+          }
+
+          const enhancedData = latestInspection.data as any;
+          if (enhancedData.errorLog && enhancedData.errorLog.length > 0) {
+            console.log(chalk.red('\n⚠️  Parsing Errors:'));
+            enhancedData.errorLog.forEach((error: any, index: number) => {
+              console.log(`   ${index + 1}. ${error.context}: ${error.error}`);
+            });
+          }
+        }
+
+        // Usage recommendations
+        console.log(chalk.blue('\n💡 Debug Recommendations:'));
+        console.log(chalk.gray('─'.repeat(50)));
+        
+        if (checkResult.appointmentCount === 0) {
+          console.log(chalk.yellow('• No appointments detected - check if the website structure has changed'));
+          console.log(chalk.yellow('• Try using --test-server flag to test with simulation server'));
+          console.log(chalk.yellow('• Use --detailed flag to see selector performance details'));
+        } else if (checkResult.availableCount === 0 && checkResult.filledCount > 0) {
+          console.log(chalk.yellow('• All appointments detected as filled - verify status detection logic'));
+          console.log(chalk.yellow('• Use --show-html flag to examine raw HTML for status indicators'));
+        } else if (checkResult.availableCount > 0) {
+          console.log(chalk.green('• Detection working correctly - available appointments found'));
+          console.log(chalk.gray('• Use --detailed flag to see confidence scores and reasoning'));
+        }
+
+        console.log(chalk.gray('• Use --json flag for machine-readable output'));
+        console.log(chalk.gray('• Check logs with "ielts-monitor logs" for more details'));
+
+      } finally {
+        await webScraper.close();
+      }
+
+    } catch (error) {
+      throw new Error(`Detection debug failed: ${error instanceof Error ? error.message : error}`);
+    }
+  }
+
+  /**
    * Handle inspect command - display latest parsed appointment data
    */
   async inspectCommand(options: { 
@@ -741,15 +1020,19 @@ export class CLIController {
   /**
    * Get color for status display
    */
-  private getStatusColor(status: MonitorStatus): (text: string) => string {
+  private getStatusColor(status: MonitorStatus | string): (text: string) => string {
     switch (status) {
       case MonitorStatus.RUNNING:
+      case 'available':
         return chalk.green;
       case MonitorStatus.PAUSED:
+      case 'filled':
         return chalk.yellow;
       case MonitorStatus.STOPPED:
+      case 'no-slots':
         return chalk.gray;
       case MonitorStatus.ERROR:
+      case 'error':
         return chalk.red;
       case MonitorStatus.STARTING:
       case MonitorStatus.STOPPING:
@@ -1311,6 +1594,38 @@ export class CLIController {
       return `${minutes}m ${seconds % 60}s`;
     } else {
       return `${seconds}s`;
+    }
+  }
+
+  /**
+   * Handle validate-detection command - test detection accuracy against real IELTS website
+   * Implements task 7: Test detection accuracy against real IELTS website
+   */
+  async validateDetectionCommand(options: { quick?: boolean }): Promise<void> {
+    console.log(chalk.blue('🔍 Detection Validation Against Live IELTS Website\n'));
+
+    try {
+      if (options.quick) {
+        await this.detectionValidationCommand.runQuickValidation();
+      } else {
+        await this.detectionValidationCommand.validateDetectionAccuracy();
+      }
+
+      console.log(chalk.green('\n✅ Detection validation completed successfully'));
+      console.log(chalk.gray('📄 Detailed results have been logged and saved'));
+
+    } catch (error) {
+      console.error(chalk.red('❌ Detection validation failed:'));
+      console.error(chalk.red(`   ${error instanceof Error ? error.message : String(error)}`));
+      
+      // Provide helpful suggestions
+      console.log(chalk.yellow('\n💡 Troubleshooting suggestions:'));
+      console.log(chalk.gray('   • Check internet connectivity'));
+      console.log(chalk.gray('   • Verify the IELTS website is accessible'));
+      console.log(chalk.gray('   • Try running with --quick flag for a faster test'));
+      console.log(chalk.gray('   • Check browser installation (Chrome/Chromium required)'));
+      
+      throw error;
     }
   }
 }

@@ -1,6 +1,12 @@
 import puppeteer, { Browser, Page } from 'puppeteer';
-import { Appointment, CheckResult, InspectionData } from '../models/types';
+import { 
+  Appointment, 
+  CheckResult, 
+  EnhancedInspectionData,
+  DetectionStrategy
+} from '../models/types';
 import { DataInspectionService } from './DataInspectionService';
+import { EnhancedInspectionService } from './EnhancedInspectionService';
 
 /**
  * Configuration for web scraping filters
@@ -27,6 +33,7 @@ export class WebScraperService {
   private browser: Browser | null = null;
   private baseUrl: string;
   private dataInspectionService: DataInspectionService;
+  private enhancedInspectionService: EnhancedInspectionService;
   private userAgents: string[] = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
@@ -44,10 +51,11 @@ export class WebScraperService {
   constructor(baseUrl?: string) {
     this.baseUrl = baseUrl || 'https://irsafam.org/ielts/timetable';
     this.dataInspectionService = new DataInspectionService();
+    this.enhancedInspectionService = new EnhancedInspectionService();
   }
 
   /**
-   * Initialize the browser instance
+   * Initialize the browser instance with better error handling
    */
   async initialize(): Promise<void> {
     // Check if browser is still connected
@@ -55,6 +63,7 @@ export class WebScraperService {
       try {
         // Test if browser is still responsive
         await this.browser.version();
+        return; // Browser is working, no need to reinitialize
       } catch (error) {
         // Browser is not responsive, close it and create a new one
         try {
@@ -67,19 +76,77 @@ export class WebScraperService {
     }
     
     if (!this.browser) {
-      this.browser = await puppeteer.launch({
-        headless: true,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--no-first-run',
-          '--no-zygote',
-          '--disable-gpu'
-        ]
-      });
+      try {
+        // Try to launch browser with multiple fallback options
+        this.browser = await this.launchBrowserWithFallbacks();
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `Failed to initialize browser: ${errorMessage}\n\n` +
+          `Possible solutions:\n` +
+          `1. Install Chromium: sudo apt-get install chromium-browser (Linux) or brew install chromium (macOS)\n` +
+          `2. Install Chrome: Download from https://www.google.com/chrome/\n` +
+          `3. Set PUPPETEER_EXECUTABLE_PATH environment variable to your browser path\n` +
+          `4. Use --test-server flag to test against local simulation server instead`
+        );
+      }
     }
+  }
+
+  /**
+   * Launch browser with multiple fallback options
+   */
+  private async launchBrowserWithFallbacks(): Promise<Browser> {
+    const launchOptions = {
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--disable-gpu',
+        '--disable-web-security',
+        '--disable-features=VizDisplayCompositor'
+      ]
+    };
+
+    // Try different browser executable paths
+    const possiblePaths = [
+      process.env.PUPPETEER_EXECUTABLE_PATH,
+      '/usr/bin/chromium-browser',
+      '/usr/bin/chromium',
+      '/usr/bin/google-chrome',
+      '/usr/bin/google-chrome-stable',
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Chromium.app/Contents/MacOS/Chromium'
+    ].filter(Boolean);
+
+    // First try default puppeteer launch (uses bundled Chromium)
+    try {
+      return await puppeteer.launch(launchOptions);
+    } catch (defaultError) {
+      console.warn('Default browser launch failed, trying alternative paths...');
+    }
+
+    // Try each possible browser path
+    for (const executablePath of possiblePaths) {
+      try {
+        const fs = await import('fs');
+        if (fs.existsSync(executablePath as string)) {
+          return await puppeteer.launch({
+            ...launchOptions,
+            executablePath: executablePath as string
+          });
+        }
+      } catch (error) {
+        console.warn(`Failed to launch browser at ${executablePath}:`, error);
+        continue;
+      }
+    }
+
+    throw new Error('No suitable browser executable found');
   }
 
   /**
@@ -87,8 +154,51 @@ export class WebScraperService {
    */
   async close(): Promise<void> {
     if (this.browser) {
-      await this.browser.close();
+      try {
+        await this.browser.close();
+      } catch (error) {
+        // Ignore close errors
+        console.warn('Warning: Error closing browser:', error);
+      }
       this.browser = null;
+    }
+  }
+
+  /**
+   * Check if browser is available without initializing
+   */
+  static async checkBrowserAvailability(): Promise<{
+    available: boolean;
+    error?: string;
+    suggestions: string[];
+  }> {
+    try {
+      // Try to launch a browser instance briefly
+      const browser = await puppeteer.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+      });
+      await browser.close();
+      
+      return {
+        available: true,
+        suggestions: []
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      const suggestions = [
+        'Install Chromium: sudo apt-get install chromium-browser (Linux) or brew install chromium (macOS)',
+        'Install Chrome: Download from https://www.google.com/chrome/',
+        'Set PUPPETEER_EXECUTABLE_PATH environment variable to your browser path',
+        'Use --test-server flag to test against local simulation server instead'
+      ];
+
+      return {
+        available: false,
+        error: errorMessage,
+        suggestions
+      };
     }
   }
 
@@ -359,6 +469,108 @@ export class WebScraperService {
   }
 
   /**
+   * Create detection strategies from selector results for enhanced inspection
+   * Requirement 2.4: Provide summary of detection patterns and results
+   */
+  private createDetectionStrategies(selectorResults: any[]): DetectionStrategy[] {
+    const strategies: DetectionStrategy[] = [];
+    
+    // Group selector results by strategy
+    const strategyGroups = selectorResults.reduce((groups: Record<string, any[]>, result: any) => {
+      const strategy = result.strategy || 'unknown';
+      if (!groups[strategy]) {
+        groups[strategy] = [];
+      }
+      groups[strategy].push(result);
+      return groups;
+    }, {} as Record<string, any[]>);
+    
+    // Create detection strategy objects
+    Object.entries(strategyGroups).forEach(([strategyName, results], index) => {
+      const totalElements = results.reduce((sum: number, r: any) => sum + (r.elementCount || 0), 0);
+      const totalTime = results.reduce((sum: number, r: any) => sum + (r.processingTime || 0), 0);
+      const successfulSelectors = results.filter((r: any) => (r.elementCount || 0) > 0);
+      
+      strategies.push({
+        name: strategyName,
+        priority: index + 1,
+        selectors: results.map((r: any) => r.selector || ''),
+        elementsFound: totalElements,
+        successRate: results.length > 0 ? successfulSelectors.length / results.length : 0,
+        processingTime: totalTime
+      });
+    });
+    
+    return strategies;
+  }
+
+  /**
+   * Validate detection results and create validation checks
+   * Requirement 6.4: Document decision-making process and fallback logic
+   */
+  private validateDetectionResults(appointments: Appointment[], statusDecisions: any[]): {
+    check: string;
+    passed: boolean;
+    details: string;
+  }[] {
+    const validationChecks = [];
+
+    // Check 1: Verify appointments have valid status
+    const validStatuses = ['available', 'filled', 'pending', 'not-registerable', 'unknown'];
+    const invalidStatusCount = appointments.filter(apt => !validStatuses.includes(apt.status)).length;
+    validationChecks.push({
+      check: 'Valid Status Assignment',
+      passed: invalidStatusCount === 0,
+      details: invalidStatusCount === 0 
+        ? 'All appointments have valid status values'
+        : `${invalidStatusCount} appointments have invalid status values`
+    });
+
+    // Check 2: Verify confidence scores are reasonable (for enhanced appointments)
+    const enhancedAppointments = appointments.filter(apt => 'confidenceScore' in apt) as any[];
+    const lowConfidenceCount = enhancedAppointments.filter(apt => apt.confidenceScore < 0.3).length;
+    validationChecks.push({
+      check: 'Confidence Score Validation',
+      passed: lowConfidenceCount === 0,
+      details: lowConfidenceCount === 0
+        ? 'All appointments have reasonable confidence scores'
+        : `${lowConfidenceCount} appointments have low confidence scores (<0.3)`
+    });
+
+    // Check 3: Verify status decisions were made
+    validationChecks.push({
+      check: 'Status Decision Coverage',
+      passed: statusDecisions.length === appointments.length,
+      details: statusDecisions.length === appointments.length
+        ? 'Status decisions recorded for all appointments'
+        : `Status decisions: ${statusDecisions.length}, Appointments: ${appointments.length}`
+    });
+
+    // Check 4: Verify appointments have required data
+    const incompleteAppointments = appointments.filter(apt => 
+      !apt.date || !apt.time || !apt.location || !apt.examType
+    ).length;
+    validationChecks.push({
+      check: 'Complete Appointment Data',
+      passed: incompleteAppointments === 0,
+      details: incompleteAppointments === 0
+        ? 'All appointments have complete data'
+        : `${incompleteAppointments} appointments are missing required data`
+    });
+
+    // Check 5: Verify fallback usage is reasonable
+    const fallbackDecisions = statusDecisions.filter(d => d.fallbackUsed).length;
+    const fallbackRate = statusDecisions.length > 0 ? fallbackDecisions / statusDecisions.length : 0;
+    validationChecks.push({
+      check: 'Fallback Usage Rate',
+      passed: fallbackRate <= 0.5, // Less than 50% fallback usage is acceptable
+      details: `Fallback used in ${fallbackDecisions}/${statusDecisions.length} decisions (${Math.round(fallbackRate * 100)}%)`
+    });
+
+    return validationChecks;
+  }
+
+  /**
    * Parse appointment data from the page (legacy method for backward compatibility)
    */
   private async parseAppointmentData(page: Page): Promise<Appointment[]> {
@@ -423,7 +635,8 @@ export class WebScraperService {
         if (lowerText.includes('pending') || lowerText.includes('waiting')) {
           return 'pending';
         }
-        return 'available';
+        // Conservative approach: Don't default to available without explicit indicators
+        return 'unknown';
       };
 
       const extractPrice = (text) => {
@@ -468,36 +681,179 @@ export class WebScraperService {
         };
       };
       
-      // Try multiple possible selectors for appointment cards
-      const selectors = [
-        '.appointment-card',
-        '.timetable-item', 
-        '.exam-slot',
-        '.appointment-item',
-        '[data-appointment]',
-        '.card'
-      ];
-      
-      let appointmentElements = null;
-      
-      for (const selector of selectors) {
-        appointmentElements = document.querySelectorAll(selector);
-        if (appointmentElements.length > 0) {
-          break;
+      // Enhanced appointment element detection with detailed logging and performance tracking
+      const detectAppointmentElements = () => {
+        const elementDetectionStart = performance.now();
+        // IELTS-specific selectors (highest priority)
+        const ieltsSelectors = [
+          'a.exam__item.ielts',
+          'a.exam__item', 
+          '.exam__item.ielts',
+          '.exam__item'
+        ];
+        
+        // Common appointment selectors
+        const commonSelectors = [
+          '.appointment-card',
+          '.timetable-item', 
+          '.exam-slot',
+          '.appointment-item',
+          '[data-appointment]',
+          '[data-appointment-id]',
+          '.card.appointment',
+          '.card.exam',
+          '.exam-card',
+          '.slot-card',
+          '.appointment',
+          '.exam-time',
+          '.time-slot'
+        ];
+        
+        // Test simulation server specific selectors
+        const testServerSelectors = [
+          '.appointment-card.timetable-item',
+          '.appointment-card.exam-slot',
+          '.timetable-item.exam-slot',
+          'div[data-appointment]',
+          'div[class*="appointment"][class*="card"]',
+          'div[class*="timetable"][class*="item"]'
+        ];
+        
+        // Try IELTS-specific selectors first
+        for (const selector of ieltsSelectors) {
+          const selectorStart = performance.now();
+          const elements = document.querySelectorAll(selector);
+          const selectorEnd = performance.now();
+          
+          inspectionData.selectorResults.push({
+            selector: selector,
+            elementCount: elements.length,
+            strategy: 'IELTS-specific',
+            processingTime: selectorEnd - selectorStart,
+            sampleHtml: elements.length > 0 ? elements[0].outerHTML.substring(0, 200) + '...' : undefined
+          });
+          
+          if (elements.length > 0) {
+            inspectionData.detectedElements.push('IELTS-specific selector "' + selector + '" found ' + elements.length + ' elements');
+            const elementDetectionEnd = performance.now();
+            inspectionData.performanceMetrics.elementDetectionTime += (elementDetectionEnd - elementDetectionStart);
+            return Array.from(elements);
+          }
         }
-      }
+        
+        // Try test simulation server selectors
+        for (const selector of testServerSelectors) {
+          const selectorStart = performance.now();
+          const elements = document.querySelectorAll(selector);
+          const selectorEnd = performance.now();
+          
+          inspectionData.selectorResults.push({
+            selector: selector,
+            elementCount: elements.length,
+            strategy: 'test-server',
+            processingTime: selectorEnd - selectorStart,
+            sampleHtml: elements.length > 0 ? elements[0].outerHTML.substring(0, 200) + '...' : undefined
+          });
+          
+          if (elements.length > 0) {
+            inspectionData.detectedElements.push('Test server selector "' + selector + '" found ' + elements.length + ' elements');
+            const elementDetectionEnd = performance.now();
+            inspectionData.performanceMetrics.elementDetectionTime += (elementDetectionEnd - elementDetectionStart);
+            return Array.from(elements);
+          }
+        }
+        
+        // Try common appointment selectors
+        for (const selector of commonSelectors) {
+          const selectorStart = performance.now();
+          const elements = document.querySelectorAll(selector);
+          const selectorEnd = performance.now();
+          
+          inspectionData.selectorResults.push({
+            selector: selector,
+            elementCount: elements.length,
+            strategy: 'common-appointment',
+            processingTime: selectorEnd - selectorStart,
+            sampleHtml: elements.length > 0 ? elements[0].outerHTML.substring(0, 200) + '...' : undefined
+          });
+          
+          if (elements.length > 0) {
+            inspectionData.detectedElements.push('Common selector "' + selector + '" found ' + elements.length + ' elements');
+            const elementDetectionEnd = performance.now();
+            inspectionData.performanceMetrics.elementDetectionTime += (elementDetectionEnd - elementDetectionStart);
+            return Array.from(elements);
+          }
+        }
+        
+        // Fallback to broader selectors with content filtering
+        const broadSelectors = [
+          'div[class*="appointment"], div[class*="exam"], div[class*="slot"]',
+          '.row .col, .row > div',
+          'div[class*="card"], div[class*="item"]'
+        ];
+        
+        for (const selector of broadSelectors) {
+          const selectorStart = performance.now();
+          const elements = document.querySelectorAll(selector);
+          const filteredElements = Array.from(elements).filter(el => {
+            const text = el.textContent || '';
+            const hasDate = /\\d{4}-\\d{2}-\\d{2}|\\d{2}\\/\\d{2}\\/\\d{4}/.test(text);
+            const hasTime = /\\d{1,2}:\\d{2}/.test(text);
+            const hasAppointmentKeywords = /exam|test|appointment|slot|ielts|cdielts/i.test(text);
+            return hasDate || hasTime || hasAppointmentKeywords;
+          });
+          const selectorEnd = performance.now();
+          
+          inspectionData.selectorResults.push({
+            selector: selector,
+            elementCount: filteredElements.length,
+            strategy: 'broad-fallback',
+            processingTime: selectorEnd - selectorStart,
+            sampleHtml: filteredElements.length > 0 ? filteredElements[0].outerHTML.substring(0, 200) + '...' : undefined
+          });
+          
+          if (filteredElements.length > 0) {
+            inspectionData.detectedElements.push('Broad fallback selector "' + selector + '" found ' + filteredElements.length + ' filtered elements');
+            const elementDetectionEnd = performance.now();
+            inspectionData.performanceMetrics.elementDetectionTime += (elementDetectionEnd - elementDetectionStart);
+            return filteredElements;
+          }
+        }
+        
+        // No elements found
+        inspectionData.detectedElements.push('No appointment elements found by any selector strategy');
+        const elementDetectionEnd = performance.now();
+        inspectionData.performanceMetrics.elementDetectionTime += (elementDetectionEnd - elementDetectionStart);
+        return [];
+      };
       
-      if (!appointmentElements || appointmentElements.length === 0) {
-        appointmentElements = document.querySelectorAll('div[class*="appointment"], div[class*="exam"], div[class*="slot"]');
-      }
+      const appointmentElements = detectAppointmentElements();
       
       appointmentElements.forEach((element, index) => {
+        const parsingStart = performance.now();
         try {
           const appointment = extractAppointmentFromElement(element, index);
           if (appointment) {
             appointments.push(appointment);
           }
+          const parsingEnd = performance.now();
+          inspectionData.performanceMetrics.parsingTime += (parsingEnd - parsingStart);
         } catch (error) {
+          const parsingEnd = performance.now();
+          inspectionData.performanceMetrics.parsingTime += (parsingEnd - parsingStart);
+          
+          // Capture detailed error information
+          const errorDetails = {
+            timestamp: new Date(),
+            error: error.message || 'Unknown parsing error',
+            context: 'Failed to parse appointment element ' + index,
+            elementIndex: index,
+            rawHtml: element.outerHTML || ''
+          };
+          
+          inspectionData.errorLog.push(errorDetails);
+          inspectionData.parsingNotes.push('ERROR parsing element ' + index + ': ' + errorDetails.error);
+          
           console.warn('Failed to parse appointment element ' + index + ':', error);
         }
       });
@@ -508,6 +864,7 @@ export class WebScraperService {
     return result as Appointment[];
   }
 
+
   /**
    * Enhanced appointment parsing with status detection and raw HTML capture
    */
@@ -517,8 +874,19 @@ export class WebScraperService {
       const inspectionData = {
         detectedElements: [],
         parsingNotes: [],
-        rawAppointmentHtml: []
+        rawAppointmentHtml: [],
+        statusDecisions: [],
+        selectorResults: [],
+        errorLog: [],
+        performanceMetrics: {
+          totalProcessingTime: 0,
+          elementDetectionTime: 0,
+          statusDetectionTime: 0,
+          parsingTime: 0
+        }
       };
+      
+      const startTime = performance.now();
       
       // Helper functions for enhanced data extraction
       const normalizeDate = (dateStr) => {
@@ -594,136 +962,827 @@ export class WebScraperService {
         return 'Isfahan';
       };
 
-      // Enhanced status detection with IELTS-specific class and Persian text support
-      const detectAppointmentStatus = (element) => {
+      // Conservative filled appointment detection - prioritizes identifying filled appointments first
+      // Requirements: 1.1, 1.2, 1.3, 1.4, 7.1, 7.2, 7.4
+      const detectAppointmentStatus = (element, elementIndex) => {
+        const statusDetectionStart = performance.now();
         const text = element.textContent || '';
         const html = element.innerHTML || '';
         const lowerText = text.toLowerCase();
         const classList = element.classList || [];
-        const classNames = Array.from(classList).join(' ');
+        const classNames = Array.from(classList).join(' ').toLowerCase();
         
-        // IELTS-specific class detection (highest priority)
-        if (classList.contains('disabled')) {
-          inspectionData.parsingNotes.push('Found disabled class - marking as filled');
-          return 'filled';
-        }
+        // Initialize status detection tracking
+        const statusIndicators = [];
+        let finalStatus = 'unknown';
+        let confidence = 0.0;
+        let reasoning = '';
+        let fallbackUsed = false;
         
-        if (classList.contains('enabled') || classList.contains('available')) {
-          inspectionData.parsingNotes.push('Found enabled/available class - marking as available');
-          return 'available';
-        }
-        
-        // Enhanced: Check for near-full class (indicates available with limited capacity)
-        if (classList.contains('near-full')) {
-          inspectionData.parsingNotes.push('Found near-full class - marking as available (limited capacity)');
-          return 'available';
-        }
-        
-        // Check for Persian "تکمیل ظرفیت" (capacity filled) indicators
+        // STEP 1: PRIORITY-BASED FILLED DETECTION (HIGHEST PRIORITY)
+        // Requirement 1.2: "تکمیل ظرفیت" text detection as highest priority filled indicator
         if (text.includes('تکمیل ظرفیت') || 
-            text.includes('تکمیل') || 
-            html.includes('تکمیل ظرفیت') ||
-            text.includes('پر شده') ||
-            text.includes('بسته شده')) {
-          inspectionData.parsingNotes.push('Found Persian filled indicator: تکمیل ظرفیت or similar');
-          return 'filled';
+            html.includes('تکمیل ظرفیت')) {
+          
+          statusIndicators.push({
+            type: 'text-content',
+            value: 'Persian: تکمیل ظرفیت',
+            weight: 1.0,
+            source: 'element'
+          });
+          
+          finalStatus = 'filled';
+          confidence = 1.0;
+          reasoning = 'Found highest priority filled indicator: تکمیل ظرفیت';
+          
+          const statusDetectionEnd = performance.now();
+          inspectionData.performanceMetrics.statusDetectionTime += (statusDetectionEnd - statusDetectionStart);
+          
+          // Enhanced filled status logging - Requirement 2.1, 2.2
+          const filledStatusDetails = {
+            elementIndex,
+            finalStatus,
+            indicators: statusIndicators,
+            reasoning,
+            confidenceScore: confidence,
+            rawHtml: element.outerHTML || '',
+            fallbackUsed,
+            // Additional filled status analysis
+            detectionDetails: {
+              detectedText: 'تکمیل ظرفیت',
+              detectionMethod: 'Persian text content',
+              priority: 'highest',
+              elementClasses: Array.from(element.classList || []),
+              textContent: text.substring(0, 200) + (text.length > 200 ? '...' : '')
+            }
+          };
+          
+          inspectionData.statusDecisions.push(filledStatusDetails);
+          
+          // Enhanced logging message - Requirement 2.1, 2.2
+          const filledLogMessage = 'Element ' + elementIndex + ': ' + reasoning + ' - marking as filled (HIGHEST PRIORITY) - ' +
+            'Classes: [' + Array.from(element.classList || []).join(', ') + ']';
+          
+          inspectionData.parsingNotes.push(filledLogMessage);
+          
+          // Log to console for immediate debugging - Requirement 2.2
+          console.log('✅ Filled Status Detection (Highest Priority):', {
+            elementIndex,
+            reasoning,
+            detectedText: 'تکمیل ظرفیت',
+            confidence,
+            elementClasses: Array.from(element.classList || [])
+          });
+          
+          return { status: finalStatus, confidence, indicators: statusIndicators, reasoning, fallbackUsed };
         }
         
-        // Check for English filled indicators
+        // Requirement 1.3: Check for "disabled" CSS class
+        if (classList.contains('disabled') || 
+            classNames.includes('exam__item ielts disabled')) {
+          
+          const foundClass = classList.contains('disabled') ? 'disabled' : 'exam__item ielts disabled';
+          
+          statusIndicators.push({
+            type: 'css-class',
+            value: foundClass,
+            weight: 0.95,
+            source: 'element'
+          });
+          
+          finalStatus = 'filled';
+          confidence = 0.95;
+          reasoning = 'Found disabled CSS class: ' + foundClass;
+          
+          const statusDetectionEnd = performance.now();
+          inspectionData.performanceMetrics.statusDetectionTime += (statusDetectionEnd - statusDetectionStart);
+          
+          inspectionData.statusDecisions.push({
+            elementIndex,
+            finalStatus,
+            indicators: statusIndicators,
+            reasoning,
+            confidenceScore: confidence,
+            rawHtml: element.outerHTML || '',
+            fallbackUsed
+          });
+          
+          inspectionData.parsingNotes.push('Element ' + elementIndex + ': ' + reasoning + ' - marking as filled');
+          return { status: finalStatus, confidence, indicators: statusIndicators, reasoning, fallbackUsed };
+        }
+        
+        // Requirement 1.4: Check for "btn disable" class in button elements
+        const hasDisableButtonClass = element.querySelector(
+          '.btn.disable, ' +
+          'span.btn.disable, ' +
+          'button.disable, ' +
+          '.disable'
+        ) !== null;
+        
+        if (hasDisableButtonClass) {
+          statusIndicators.push({
+            type: 'button-class',
+            value: 'btn disable',
+            weight: 0.95,
+            source: 'button-element'
+          });
+          
+          finalStatus = 'filled';
+          confidence = 0.95;
+          reasoning = 'Found btn disable class in button element';
+          
+          const statusDetectionEnd = performance.now();
+          inspectionData.performanceMetrics.statusDetectionTime += (statusDetectionEnd - statusDetectionStart);
+          
+          inspectionData.statusDecisions.push({
+            elementIndex,
+            finalStatus,
+            indicators: statusIndicators,
+            reasoning,
+            confidenceScore: confidence,
+            rawHtml: element.outerHTML || '',
+            fallbackUsed
+          });
+          
+          inspectionData.parsingNotes.push('Element ' + elementIndex + ': ' + reasoning + ' - marking as filled');
+          return { status: finalStatus, confidence, indicators: statusIndicators, reasoning, fallbackUsed };
+        }
+        
+        // Additional filled indicators (lower priority but still immediate)
+        if (classList.contains('inactive') ||
+            classList.contains('unavailable') ||
+            classList.contains('full') ||
+            classList.contains('closed') ||
+            classList.contains('filled') ||
+            classList.contains('sold-out') ||
+            classNames.includes('btn-disabled')) {
+          
+          const filledClasses = ['inactive', 'unavailable', 'full', 'closed', 'filled', 'sold-out'];
+          const foundClass = Array.from(classList).find(cls => filledClasses.includes(cls)) || 'btn-disabled';
+          
+          statusIndicators.push({
+            type: 'css-class',
+            value: foundClass,
+            weight: 0.9,
+            source: 'element'
+          });
+          
+          finalStatus = 'filled';
+          confidence = 0.9;
+          reasoning = 'Found filled CSS class: ' + foundClass;
+          
+          const statusDetectionEnd = performance.now();
+          inspectionData.performanceMetrics.statusDetectionTime += (statusDetectionEnd - statusDetectionStart);
+          
+          inspectionData.statusDecisions.push({
+            elementIndex,
+            finalStatus,
+            indicators: statusIndicators,
+            reasoning,
+            confidenceScore: confidence,
+            rawHtml: element.outerHTML || '',
+            fallbackUsed
+          });
+          
+          inspectionData.parsingNotes.push('Element ' + elementIndex + ': ' + reasoning + ' - marking as filled');
+          return { status: finalStatus, confidence, indicators: statusIndicators, reasoning, fallbackUsed };
+        }
+        
+        // Additional Persian filled text detection
+        if (text.includes('تکمیل') || 
+            text.includes('پر شده') ||
+            text.includes('بسته شده') ||
+            text.includes('تمام شده') ||
+            text.includes('موجود نیست') ||
+            text.includes('پر') ||
+            html.includes('تکمیل')) {
+          
+          const persianFilledTexts = ['تکمیل', 'پر شده', 'بسته شده', 'تمام شده', 'موجود نیست', 'پر'];
+          const foundText = persianFilledTexts.find(t => text.includes(t) || html.includes(t));
+          
+          statusIndicators.push({
+            type: 'text-content',
+            value: 'Persian: ' + foundText,
+            weight: 0.9,
+            source: 'element'
+          });
+          
+          finalStatus = 'filled';
+          confidence = 0.9;
+          reasoning = 'Found Persian filled indicator: ' + foundText;
+          
+          const statusDetectionEnd = performance.now();
+          inspectionData.performanceMetrics.statusDetectionTime += (statusDetectionEnd - statusDetectionStart);
+          
+          inspectionData.statusDecisions.push({
+            elementIndex,
+            finalStatus,
+            indicators: statusIndicators,
+            reasoning,
+            confidenceScore: confidence,
+            rawHtml: element.outerHTML || '',
+            fallbackUsed
+          });
+          
+          inspectionData.parsingNotes.push('Element ' + elementIndex + ': ' + reasoning + ' - marking as filled');
+          return { status: finalStatus, confidence, indicators: statusIndicators, reasoning, fallbackUsed };
+        }
+        
+        // English filled indicators
         if (lowerText.includes('full') || 
             lowerText.includes('closed') ||
             lowerText.includes('filled') ||
             lowerText.includes('capacity full') ||
             lowerText.includes('sold out') ||
             lowerText.includes('booked') ||
-            lowerText.includes('unavailable')) {
-          inspectionData.parsingNotes.push('Found English filled indicator');
-          return 'filled';
+            lowerText.includes('unavailable') ||
+            lowerText.includes('no spaces') ||
+            lowerText.includes('no slots') ||
+            lowerText.includes('completed')) {
+          
+          const englishFilledTexts = ['full', 'closed', 'filled', 'capacity full', 'sold out', 'booked', 'unavailable', 'no spaces', 'no slots', 'completed'];
+          const foundText = englishFilledTexts.find(t => lowerText.includes(t));
+          
+          statusIndicators.push({
+            type: 'text-content',
+            value: 'English: ' + foundText,
+            weight: 0.9,
+            source: 'element'
+          });
+          
+          finalStatus = 'filled';
+          confidence = 0.9;
+          reasoning = 'Found English filled indicator: ' + foundText;
+          
+          const statusDetectionEnd = performance.now();
+          inspectionData.performanceMetrics.statusDetectionTime += (statusDetectionEnd - statusDetectionStart);
+          
+          inspectionData.statusDecisions.push({
+            elementIndex,
+            finalStatus,
+            indicators: statusIndicators,
+            reasoning,
+            confidenceScore: confidence,
+            rawHtml: element.outerHTML || '',
+            fallbackUsed
+          });
+          
+          inspectionData.parsingNotes.push('Element ' + elementIndex + ': ' + reasoning + ' - marking as filled');
+          return { status: finalStatus, confidence, indicators: statusIndicators, reasoning, fallbackUsed };
         }
+        
+        // Disabled button detection
+        const hasDisabledButton = element.querySelector(
+          'button[disabled], ' +
+          'button.disabled, ' +
+          '.btn[disabled], ' +
+          '.btn.disabled, ' +
+          '.btn.btn-disabled, ' +
+          '.disabled button, ' +
+          '.disabled .btn, ' +
+          'input[disabled]'
+        ) !== null;
+        
+        if (hasDisabledButton) {
+          statusIndicators.push({
+            type: 'interactive-element',
+            value: 'disabled button',
+            weight: 0.9,
+            source: 'element'
+          });
+          
+          finalStatus = 'filled';
+          confidence = 0.9;
+          reasoning = 'Found disabled button element';
+          
+          const statusDetectionEnd = performance.now();
+          inspectionData.performanceMetrics.statusDetectionTime += (statusDetectionEnd - statusDetectionStart);
+          
+          inspectionData.statusDecisions.push({
+            elementIndex,
+            finalStatus,
+            indicators: statusIndicators,
+            reasoning,
+            confidenceScore: confidence,
+            rawHtml: element.outerHTML || '',
+            fallbackUsed
+          });
+          
+          inspectionData.parsingNotes.push('Element ' + elementIndex + ': ' + reasoning + ' - marking as filled');
+          return { status: finalStatus, confidence, indicators: statusIndicators, reasoning, fallbackUsed };
+        }
+        
+        // STEP 2: EXPLICIT AVAILABLE DETECTION (ONLY AFTER CONFIRMING NOT FILLED)
+        // Requirement 5.3, 5.4: Only check for available indicators after confirming appointment is NOT filled
+        
+        // CSS class detection for available states
+        if (classList.contains('enabled') || 
+            classList.contains('available') || 
+            classList.contains('active') ||
+            classList.contains('bookable') ||
+            classList.contains('open') ||
+            classNames.includes('enable')) {
+          
+          const foundClass = Array.from(classList).find(cls => 
+            ['enabled', 'available', 'active', 'bookable', 'open'].includes(cls)
+          ) || 'enable';
+          
+          statusIndicators.push({
+            type: 'css-class',
+            value: foundClass,
+            weight: 0.9,
+            source: 'element'
+          });
+          
+          finalStatus = 'available';
+          confidence = 0.9;
+          reasoning = 'Found available CSS class: ' + foundClass;
+          
+          const statusDetectionEnd = performance.now();
+          inspectionData.performanceMetrics.statusDetectionTime += (statusDetectionEnd - statusDetectionStart);
+          
+          inspectionData.statusDecisions.push({
+            elementIndex,
+            finalStatus,
+            indicators: statusIndicators,
+            reasoning,
+            confidenceScore: confidence,
+            rawHtml: element.outerHTML || '',
+            fallbackUsed
+          });
+          
+          inspectionData.parsingNotes.push('Element ' + elementIndex + ': ' + reasoning + ' - marking as available');
+          return { status: finalStatus, confidence, indicators: statusIndicators, reasoning, fallbackUsed };
+        }
+        
+        // Check for near-full class (indicates available with limited capacity)
+        if (classList.contains('near-full') || 
+            classList.contains('limited') ||
+            classList.contains('few-spots')) {
+          
+          const foundClass = Array.from(classList).find(cls => 
+            ['near-full', 'limited', 'few-spots'].includes(cls)
+          );
+          
+          statusIndicators.push({
+            type: 'css-class',
+            value: foundClass,
+            weight: 0.8,
+            source: 'element'
+          });
+          
+          finalStatus = 'available';
+          confidence = 0.8;
+          reasoning = 'Found near-full/limited class: ' + foundClass + ' (available with limited capacity)';
+          
+          const statusDetectionEnd = performance.now();
+          inspectionData.performanceMetrics.statusDetectionTime += (statusDetectionEnd - statusDetectionStart);
+          
+          inspectionData.statusDecisions.push({
+            elementIndex,
+            finalStatus,
+            indicators: statusIndicators,
+            reasoning,
+            confidenceScore: confidence,
+            rawHtml: element.outerHTML || '',
+            fallbackUsed
+          });
+          
+          inspectionData.parsingNotes.push('Element ' + elementIndex + ': ' + reasoning);
+          return { status: finalStatus, confidence, indicators: statusIndicators, reasoning, fallbackUsed };
+        }
+        
+        // Clickable element detection (indicates bookable appointment)
+        const hasOnclickAttribute = element.hasAttribute('onclick') || 
+                                   element.hasAttribute('data-onclick') ||
+                                   element.hasAttribute('data-action');
+        
+        // Active registration button detection (without disabled attributes)
+        const hasRegistrationButton = element.querySelector(
+          'button:not([disabled]):not(.disabled):not(.btn-disabled), ' +
+          '.btn:not([disabled]):not(.disabled):not(.btn-disabled), ' +
+          '.register:not([disabled]):not(.disabled), ' +
+          '.book:not([disabled]):not(.disabled), ' +
+          '.reserve:not([disabled]):not(.disabled), ' +
+          'input[type="submit"]:not([disabled]):not(.disabled), ' +
+          'input[type="button"]:not([disabled]):not(.disabled)'
+        ) !== null;
+        
+        // Registration link detection
+        const hasRegistrationLink = element.querySelector(
+          'a[href*="register"]:not(.disabled), ' +
+          'a[href*="book"]:not(.disabled), ' +
+          'a[href*="signup"]:not(.disabled), ' +
+          'a[href*="reserve"]:not(.disabled), ' +
+          'a[href*="appointment"]:not(.disabled), ' +
+          'a[onclick]:not(.disabled)'
+        ) !== null;
+        
+        // "قابل ثبت نام" text detection for available status
+        const hasPersianAvailableText = text.includes('قابل ثبت نام') ||
+                                       html.includes('قابل ثبت نام');
+        
+        // Additional Persian available text detection
+        const hasOtherPersianAvailableText = text.includes('ثبت نام') ||
+                                            text.includes('رزرو') ||
+                                            text.includes('موجود') ||
+                                            text.includes('آزاد') ||
+                                            text.includes('باز') ||
+                                            html.includes('رزرو');
+        
+        // English available text detection
+        const hasEnglishAvailableText = lowerText.includes('available') || 
+                                       lowerText.includes('register now') ||
+                                       lowerText.includes('book now') ||
+                                       lowerText.includes('reserve now') ||
+                                       lowerText.includes('sign up') ||
+                                       lowerText.includes('enroll') ||
+                                       lowerText.includes('open for registration');
+        
+        // Check for explicit available indicators (highest priority first)
+        if (hasPersianAvailableText) {
+          statusIndicators.push({
+            type: 'text-content',
+            value: 'Persian: قابل ثبت نام',
+            weight: 0.95,
+            source: 'element'
+          });
+          
+          finalStatus = 'available';
+          confidence = 0.95;
+          reasoning = 'Found قابل ثبت نام text for available status';
+          
+          const statusDetectionEnd = performance.now();
+          inspectionData.performanceMetrics.statusDetectionTime += (statusDetectionEnd - statusDetectionStart);
+          
+          // Enhanced available status logging - Requirement 2.1, 2.2
+          const availableStatusDetails = {
+            elementIndex,
+            finalStatus,
+            indicators: statusIndicators,
+            reasoning,
+            confidenceScore: confidence,
+            rawHtml: element.outerHTML || '',
+            fallbackUsed,
+            // Additional available status analysis
+            detectionDetails: {
+              detectedText: 'قابل ثبت نام',
+              detectionMethod: 'Persian text content',
+              priority: 'high',
+              elementClasses: Array.from(element.classList || []),
+              textContent: text.substring(0, 200) + (text.length > 200 ? '...' : ''),
+              hasActiveButton: hasActiveRegistrationButton,
+              hasAvailableText: hasPersianAvailableText
+            }
+          };
+          
+          inspectionData.statusDecisions.push(availableStatusDetails);
+          
+          // Enhanced logging message - Requirement 2.1, 2.2
+          const availableLogMessage = 'Element ' + elementIndex + ': ' + reasoning + ' - marking as available (EXPLICIT AVAILABLE) - ' +
+            'Classes: [' + Array.from(element.classList || []).join(', ') + '], Active button: ' + hasActiveRegistrationButton;
+          
+          inspectionData.parsingNotes.push(availableLogMessage);
+          
+          // Log to console for immediate debugging - Requirement 2.2
+          console.log('✅ Available Status Detection (Explicit):', {
+            elementIndex,
+            reasoning,
+            detectedText: 'قابل ثبت نام',
+            confidence,
+            elementClasses: Array.from(element.classList || []),
+            hasActiveButton: hasActiveRegistrationButton
+          });
+          
+          return { status: finalStatus, confidence, indicators: statusIndicators, reasoning, fallbackUsed };
+        }
+        
+        if (hasRegistrationButton) {
+          statusIndicators.push({
+            type: 'interactive-element',
+            value: 'active registration button',
+            weight: 0.9,
+            source: 'element'
+          });
+          
+          finalStatus = 'available';
+          confidence = 0.9;
+          reasoning = 'Found active registration button without disabled attributes';
+          
+          const statusDetectionEnd = performance.now();
+          inspectionData.performanceMetrics.statusDetectionTime += (statusDetectionEnd - statusDetectionStart);
+          
+          inspectionData.statusDecisions.push({
+            elementIndex,
+            finalStatus,
+            indicators: statusIndicators,
+            reasoning,
+            confidenceScore: confidence,
+            rawHtml: element.outerHTML || '',
+            fallbackUsed
+          });
+          
+          inspectionData.parsingNotes.push('Element ' + elementIndex + ': ' + reasoning + ' - marking as available');
+          return { status: finalStatus, confidence, indicators: statusIndicators, reasoning, fallbackUsed };
+        }
+        
+        if (hasRegistrationLink || hasOtherPersianAvailableText || hasEnglishAvailableText || hasOnclickAttribute) {
+          
+          // Determine which indicator was found and add to status indicators
+          if (hasRegistrationLink) {
+            statusIndicators.push({
+              type: 'interactive-element',
+              value: 'registration link',
+              weight: 0.85,
+              source: 'element'
+            });
+            reasoning = 'Found registration link';
+          } else if (hasOtherPersianAvailableText) {
+            const persianTexts = ['ثبت نام', 'رزرو', 'موجود', 'آزاد', 'باز'];
+            const foundText = persianTexts.find(t => text.includes(t) || html.includes(t));
+            statusIndicators.push({
+              type: 'text-content',
+              value: 'Persian: ' + foundText,
+              weight: 0.8,
+              source: 'element'
+            });
+            reasoning = 'Found Persian available text: ' + foundText;
+          } else if (hasEnglishAvailableText) {
+            const englishTexts = ['available', 'register now', 'book now', 'reserve now', 'sign up', 'enroll', 'open for registration'];
+            const foundText = englishTexts.find(t => lowerText.includes(t));
+            statusIndicators.push({
+              type: 'text-content',
+              value: 'English: ' + foundText,
+              weight: 0.8,
+              source: 'element'
+            });
+            reasoning = 'Found English available text: ' + foundText;
+          } else if (hasOnclickAttribute) {
+            statusIndicators.push({
+              type: 'interactive-element',
+              value: 'onclick attribute',
+              weight: 0.75,
+              source: 'element'
+            });
+            reasoning = 'Found onclick attribute indicating clickable appointment';
+          }
+          
+          finalStatus = 'available';
+          confidence = Math.max(...statusIndicators.map(i => i.weight));
+          
+          const statusDetectionEnd = performance.now();
+          inspectionData.performanceMetrics.statusDetectionTime += (statusDetectionEnd - statusDetectionStart);
+          
+          inspectionData.statusDecisions.push({
+            elementIndex,
+            finalStatus,
+            indicators: statusIndicators,
+            reasoning,
+            confidenceScore: confidence,
+            rawHtml: element.outerHTML || '',
+            fallbackUsed
+          });
+          
+          inspectionData.parsingNotes.push('Element ' + elementIndex + ': ' + reasoning + ' - marking as available');
+          return { status: finalStatus, confidence, indicators: statusIndicators, reasoning, fallbackUsed };
+        }
+        
+        // STEP 3: CONSERVATIVE UNKNOWN STATUS HANDLING
+        // If no filled or available indicators found, mark as unknown for safety
         
         // Check for not-registerable status (different from filled)
         if (lowerText.includes('not registerable') ||
             lowerText.includes('registration closed') ||
             lowerText.includes('expired') ||
+            lowerText.includes('deadline passed') ||
             text.includes('قابل ثبت نام نیست') ||
-            text.includes('مهلت ثبت نام گذشته')) {
-          inspectionData.parsingNotes.push('Found not-registerable indicator');
-          return 'not-registerable';
+            text.includes('مهلت ثبت نام گذشته') ||
+            text.includes('منقضی شده')) {
+          
+          statusIndicators.push({
+            type: 'text-content',
+            value: 'not-registerable indicator',
+            weight: 0.9,
+            source: 'element'
+          });
+          
+          finalStatus = 'not-registerable';
+          confidence = 0.9;
+          reasoning = 'Found not-registerable indicator';
+          
+          const statusDetectionEnd = performance.now();
+          inspectionData.performanceMetrics.statusDetectionTime += (statusDetectionEnd - statusDetectionStart);
+          
+          inspectionData.statusDecisions.push({
+            elementIndex,
+            finalStatus,
+            indicators: statusIndicators,
+            reasoning,
+            confidenceScore: confidence,
+            rawHtml: element.outerHTML || '',
+            fallbackUsed
+          });
+          
+          inspectionData.parsingNotes.push('Element ' + elementIndex + ': ' + reasoning);
+          return { status: finalStatus, confidence, indicators: statusIndicators, reasoning, fallbackUsed };
         }
         
         // Check for pending/waiting status
         if (lowerText.includes('pending') || 
             lowerText.includes('waiting') ||
             lowerText.includes('in progress') ||
+            lowerText.includes('processing') ||
             text.includes('در انتظار') ||
-            text.includes('در حال بررسی')) {
-          inspectionData.parsingNotes.push('Found pending/waiting indicator');
-          return 'pending';
+            text.includes('در حال بررسی') ||
+            text.includes('در حال پردازش')) {
+          
+          statusIndicators.push({
+            type: 'text-content',
+            value: 'pending/waiting indicator',
+            weight: 0.8,
+            source: 'element'
+          });
+          
+          finalStatus = 'pending';
+          confidence = 0.8;
+          reasoning = 'Found pending/waiting indicator';
+          
+          const statusDetectionEnd = performance.now();
+          inspectionData.performanceMetrics.statusDetectionTime += (statusDetectionEnd - statusDetectionStart);
+          
+          inspectionData.statusDecisions.push({
+            elementIndex,
+            finalStatus,
+            indicators: statusIndicators,
+            reasoning,
+            confidenceScore: confidence,
+            rawHtml: element.outerHTML || '',
+            fallbackUsed
+          });
+          
+          inspectionData.parsingNotes.push('Element ' + elementIndex + ': ' + reasoning);
+          return { status: finalStatus, confidence, indicators: statusIndicators, reasoning, fallbackUsed };
         }
         
-        // Check for available indicators (registration buttons, links, etc.)
-        const hasRegistrationButton = element.querySelector('button:not([disabled]), .btn:not([disabled]):not(.disable), .register:not([disabled]), .book:not([disabled])') !== null;
-        const hasRegistrationLink = element.querySelector('a[href*="register"], a[href*="book"], a[href*="signup"]') !== null;
-        const hasAvailableText = lowerText.includes('available') || 
-                                lowerText.includes('register now') ||
-                                lowerText.includes('book now') ||
-                                text.includes('قابل ثبت نام') ||
-                                text.includes('ثبت نام');
-        
-        // Enhanced: Check for onclick attribute (indicates clickable/bookable appointment)
-        const hasOnclickAttribute = element.hasAttribute('onclick');
-        
-        // Enhanced: Check for "رزرو" (Reserve) button text
-        const hasReserveButton = text.includes('رزرو');
-        
-        if (hasRegistrationButton || hasRegistrationLink || hasAvailableText || hasOnclickAttribute || hasReserveButton) {
-          if (hasOnclickAttribute) {
-            inspectionData.parsingNotes.push('Found onclick attribute - marking as available');
-          } else if (hasReserveButton) {
-            inspectionData.parsingNotes.push('Found رزرو (Reserve) button - marking as available');
-          } else {
-            inspectionData.parsingNotes.push('Found registration button/link/text - marking as available');
-          }
-          return 'available';
-        }
-        
-        // Check for disabled buttons or inactive elements (suggests filled)
-        const hasDisabledButton = element.querySelector('button[disabled], .btn[disabled], .disabled, .btn.disable') !== null;
-        if (hasDisabledButton) {
-          inspectionData.parsingNotes.push('Found disabled button - marking as filled');
-          return 'filled';
-        }
-        
-        // Enhanced date/time detection with status inference
-        const hasDateInfo = /\\d{4}-\\d{2}-\\d{2}|\\d{2}\\/\\d{2}\\/\\d{4}/.test(text);
+        // Conservative contextual analysis - only for appointment-like elements
+        const hasDateInfo = /\\d{4}-\\d{2}-\\d{2}|\\d{2}\\/\\d{2}\\/\\d{4}|\\d{1,2}\\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/.test(text);
         const hasTimeInfo = /\\d{1,2}:\\d{2}/.test(text);
+        const hasPersianDate = /\\d{4}\\/\\d{1,2}\\/\\d{1,2}|\\d{1,2}\\s+(فروردین|اردیبهشت|خرداد|تیر|مرداد|شهریور|مهر|آبان|آذر|دی|بهمن|اسفند)/.test(text);
+        const hasAppointmentContent = lowerText.includes('ielts') ||
+                                     lowerText.includes('exam') ||
+                                     lowerText.includes('test') ||
+                                     text.includes('آزمون') ||
+                                     text.includes('امتحان');
         
-        if (hasDateInfo && hasTimeInfo) {
-          // If we have appointment data but no clear status indicators,
-          // look for contextual clues in the surrounding elements
-          const parentElement = element.parentElement;
-          const siblingElements = parentElement ? Array.from(parentElement.children) : [];
+        if (hasDateInfo || hasTimeInfo || hasPersianDate || hasAppointmentContent) {
+          // Conservative approach: Mark as unknown when no clear status indicators are found
+          // Requirement 6.1, 6.2: Never default to available without explicit indicators
+          statusIndicators.push({
+            type: 'contextual',
+            value: 'appointment data present, no clear status indicators',
+            weight: 0.1,
+            source: 'element'
+          });
           
-          // Check siblings for status indicators
-          for (const sibling of siblingElements) {
-            const siblingText = sibling.textContent?.toLowerCase() || '';
-            if (siblingText.includes('full') || siblingText.includes('تکمیل')) {
-              inspectionData.parsingNotes.push('Found filled indicator in sibling element');
-              return 'filled';
-            }
-            if (siblingText.includes('available') || siblingText.includes('قابل ثبت نام')) {
-              inspectionData.parsingNotes.push('Found available indicator in sibling element');
-              return 'available';
-            }
-          }
+          finalStatus = 'unknown';
+          confidence = 0.1;
+          reasoning = 'Has appointment data but no clear status indicators - conservative unknown status';
+          fallbackUsed = true;
           
-          // Default to available if we have appointment data but no negative indicators
-          inspectionData.parsingNotes.push('Has date/time info with no negative indicators - defaulting to available');
-          return 'available';
+          const statusDetectionEnd = performance.now();
+          inspectionData.performanceMetrics.statusDetectionTime += (statusDetectionEnd - statusDetectionStart);
+          
+          // Enhanced unknown status logging - Requirement 2.1, 2.2, 2.4
+          const unknownStatusDetails = {
+            elementIndex,
+            finalStatus,
+            indicators: statusIndicators,
+            reasoning,
+            confidenceScore: confidence,
+            rawHtml: element.outerHTML || '',
+            fallbackUsed,
+            // Additional unknown status analysis - Requirement 2.4
+            detectedContent: {
+              hasDateInfo,
+              hasTimeInfo,
+              hasPersianDate,
+              hasAppointmentContent,
+              textContent: text.substring(0, 200) + (text.length > 200 ? '...' : ''),
+              elementClasses: Array.from(element.classList || []),
+              childElementCount: element.children ? element.children.length : 0
+            },
+            // Capture complete HTML structure for analysis - Task requirement
+            completeHtmlStructure: {
+              outerHTML: element.outerHTML || '',
+              innerHTML: element.innerHTML || '',
+              tagName: element.tagName || '',
+              attributes: element.attributes ? Array.from(element.attributes).map(attr => ({
+                name: attr.name,
+                value: attr.value
+              })) : [],
+              parentElement: element.parentElement ? {
+                tagName: element.parentElement.tagName,
+                className: element.parentElement.className,
+                outerHTML: element.parentElement.outerHTML.substring(0, 300) + '...'
+              } : null
+            }
+          };
+          
+          inspectionData.statusDecisions.push(unknownStatusDetails);
+          
+          // Enhanced logging for unknown appointments - Requirement 2.1, 2.2
+          const unknownLogMessage = 'Element ' + elementIndex + ': ' + reasoning + ' (CONSERVATIVE UNKNOWN) - ' +
+            'Content indicators: date=' + hasDateInfo + ', time=' + hasTimeInfo + ', persian=' + hasPersianDate + 
+            ', appointment=' + hasAppointmentContent + ' - Classes: [' + Array.from(element.classList || []).join(', ') + ']';
+          
+          inspectionData.parsingNotes.push(unknownLogMessage);
+          
+          // Log to console for immediate debugging - Requirement 2.2
+          console.log('🔍 Unknown Status Detection:', {
+            elementIndex,
+            reasoning,
+            detectedIndicators: {
+              hasDateInfo,
+              hasTimeInfo,
+              hasPersianDate,
+              hasAppointmentContent
+            },
+            elementClasses: Array.from(element.classList || []),
+            textPreview: text.substring(0, 100) + (text.length > 100 ? '...' : '')
+          });
+          
+          return { status: finalStatus, confidence, indicators: statusIndicators, reasoning, fallbackUsed };
         }
         
-        inspectionData.parsingNotes.push('Could not determine status - marking as unknown');
-        return 'unknown';
+        // Final unknown status for any other elements
+        finalStatus = 'unknown';
+        confidence = 0.0;
+        reasoning = 'Could not determine status from any indicators - conservative unknown';
+        fallbackUsed = true;
+        
+        const statusDetectionEnd = performance.now();
+        inspectionData.performanceMetrics.statusDetectionTime += (statusDetectionEnd - statusDetectionStart);
+        
+        // Enhanced final unknown status logging - Requirement 2.1, 2.2, 2.4
+        const finalUnknownDetails = {
+          elementIndex,
+          finalStatus,
+          indicators: statusIndicators,
+          reasoning,
+          confidenceScore: confidence,
+          rawHtml: element.outerHTML || '',
+          fallbackUsed,
+          // Complete analysis for final unknown status
+          analysisDetails: {
+            textContent: text.substring(0, 200) + (text.length > 200 ? '...' : ''),
+            elementClasses: Array.from(element.classList || []),
+            childElementCount: element.children ? element.children.length : 0,
+            hasAnyContent: text.length > 0,
+            elementType: element.tagName || 'unknown'
+          },
+          // Capture complete HTML structure for analysis - Task requirement
+          completeHtmlStructure: {
+            outerHTML: element.outerHTML || '',
+            innerHTML: element.innerHTML || '',
+            tagName: element.tagName || '',
+            attributes: element.attributes ? Array.from(element.attributes).map(attr => ({
+              name: attr.name,
+              value: attr.value
+            })) : [],
+            parentElement: element.parentElement ? {
+              tagName: element.parentElement.tagName,
+              className: element.parentElement.className,
+              outerHTML: element.parentElement.outerHTML.substring(0, 300) + '...'
+            } : null,
+            siblingElements: element.parentElement ? Array.from(element.parentElement.children).map((sibling, idx) => ({
+              index: idx,
+              tagName: sibling.tagName,
+              className: sibling.className,
+              textContent: sibling.textContent ? sibling.textContent.substring(0, 50) + '...' : ''
+            })) : []
+          }
+        };
+        
+        inspectionData.statusDecisions.push(finalUnknownDetails);
+        
+        // Enhanced logging for final unknown status - Requirement 2.1, 2.2
+        const finalUnknownLogMessage = 'Element ' + elementIndex + ': ' + reasoning + ' - ' +
+          'Element type: ' + (element.tagName || 'unknown') + ', Classes: [' + 
+          Array.from(element.classList || []).join(', ') + '], Content length: ' + text.length;
+        
+        inspectionData.parsingNotes.push(finalUnknownLogMessage);
+        
+        // Log to console for immediate debugging - Requirement 2.2
+        console.log('🔍 Final Unknown Status:', {
+          elementIndex,
+          reasoning,
+          elementType: element.tagName || 'unknown',
+          elementClasses: Array.from(element.classList || []),
+          contentLength: text.length,
+          hasContent: text.length > 0
+        });
+        
+        return { status: finalStatus, confidence, indicators: statusIndicators, reasoning, fallbackUsed };
       };
 
       const extractPrice = (text, element) => {
@@ -830,10 +1889,10 @@ export class WebScraperService {
           extractedTime = timeMatch ? timeMatch[1] : 'TBD';
         }
         
-        // Enhanced status detection
-        const status = detectAppointmentStatus(element);
+        // Enhanced status detection with detailed logging
+        const statusResult = detectAppointmentStatus(element, index);
         
-        if (!extractedDate && !extractedTime && status === 'unknown') {
+        if (!extractedDate && !extractedTime && statusResult.status === 'unknown') {
           return null;
         }
         
@@ -844,10 +1903,16 @@ export class WebScraperService {
           location: extractLocation(textContent, element),
           examType: extractExamType(textContent, element),
           city: extractCity(textContent, element),
-          status: status === 'unknown' ? 'available' : status,
+          status: statusResult.status,
           price: extractPrice(textContent, element),
           registrationUrl: extractRegistrationUrl(element),
-          rawHtml: rawHtml
+          rawHtml: rawHtml,
+          // Enhanced appointment metadata
+          detectionMethod: 'enhanced-multi-strategy',
+          statusIndicators: statusResult.indicators.map(i => i.type + ':' + i.value),
+          confidenceScore: statusResult.confidence,
+          parsingNotes: ['Status: ' + statusResult.reasoning],
+          elementIndex: index
         };
       };
       
@@ -885,59 +1950,119 @@ export class WebScraperService {
         };
       }
       
-      // Enhanced appointment element detection with IELTS-specific selectors
-      const selectors = [
-        // IELTS-specific selectors (highest priority)
-        'a.exam__item.ielts',
-        'a.exam__item',
-        '.exam__item.ielts',
-        '.exam__item',
+      // Enhanced appointment element detection with IELTS-specific selectors and fallback chain
+      const detectAppointmentElements = () => {
+        // IELTS-specific selectors (highest priority) - Requirements 3.1, 4.1
+        const ieltsSelectors = [
+          'a.exam__item.ielts',
+          'a.exam__item', 
+          '.exam__item.ielts',
+          '.exam__item'
+        ];
         
-        // Fallback selectors
-        '.appointment-card',
-        '.timetable-item', 
-        '.exam-slot',
-        '.appointment-item',
-        '[data-appointment]',
-        '.card',
-        '.exam-card',
-        '.slot-card',
-        '.appointment',
-        '.exam-time',
-        '.time-slot',
+        // Common appointment selectors - Requirements 3.2
+        const commonSelectors = [
+          '.appointment-card',
+          '.timetable-item', 
+          '.exam-slot',
+          '.appointment-item',
+          '[data-appointment]',
+          '[data-appointment-id]',
+          '.card.appointment',
+          '.card.exam',
+          '.exam-card',
+          '.slot-card',
+          '.appointment',
+          '.exam-time',
+          '.time-slot'
+        ];
         
-        // Bootstrap and common framework selectors
-        '.card-body',
-        '.list-group-item',
-        '.panel-body',
+        // Framework-based selectors - Requirements 3.2
+        const frameworkSelectors = [
+          '.card-body',
+          '.list-group-item',
+          '.panel-body',
+          '.content-item',
+          '.item'
+        ];
         
-        // Generic content selectors that might contain appointments
-        '.content-item',
-        '.item',
-        '.entry'
-      ];
-      
-      let appointmentElements = null;
-      let usedSelector = '';
-      
-      // Try each selector and pick the one with most elements
-      let bestMatch = { elements: null, count: 0, selector: '' };
-      
-      for (const selector of selectors) {
-        const elements = document.querySelectorAll(selector);
-        if (elements.length > bestMatch.count) {
-          bestMatch = { elements, count: elements.length, selector };
+        // Test simulation server specific selectors - Requirements 4.2, 4.4
+        const testServerSelectors = [
+          '.appointment-card.timetable-item',
+          '.appointment-card.exam-slot',
+          '.timetable-item.exam-slot',
+          'div[data-appointment]',
+          'div[class*="appointment"][class*="card"]',
+          'div[class*="timetable"][class*="item"]'
+        ];
+        
+        let detectionLog = '';
+        
+        // Strategy 1: Try IELTS-specific selectors first
+        for (const selector of ieltsSelectors) {
+          const elements = document.querySelectorAll(selector);
+          if (elements.length > 0) {
+            detectionLog = 'Found ' + elements.length + ' elements with IELTS-specific selector: ' + selector;
+            return {
+              elements: Array.from(elements),
+              selector: selector,
+              strategy: 'IELTS-specific',
+              detectionLog: detectionLog
+            };
+          }
         }
-      }
-      
-      if (bestMatch.count > 0) {
-        appointmentElements = bestMatch.elements;
-        usedSelector = bestMatch.selector;
-        inspectionData.detectedElements.push('Found ' + bestMatch.count + ' elements with selector: ' + bestMatch.selector);
-      }
-      
-      // Fallback to broader selectors with content filtering
-      if (!appointmentElements || appointmentElements.length === 0) {
+        
+        // Strategy 2: Try test simulation server selectors
+        for (const selector of testServerSelectors) {
+          const elements = document.querySelectorAll(selector);
+          if (elements.length > 0) {
+            detectionLog = 'Found ' + elements.length + ' elements with test server selector: ' + selector;
+            return {
+              elements: Array.from(elements),
+              selector: selector,
+              strategy: 'test-server-specific',
+              detectionLog: detectionLog
+            };
+          }
+        }
+        
+        // Strategy 3: Try common appointment selectors
+        for (const selector of commonSelectors) {
+          const elements = document.querySelectorAll(selector);
+          if (elements.length > 0) {
+            detectionLog = 'Found ' + elements.length + ' elements with common selector: ' + selector;
+            return {
+              elements: Array.from(elements),
+              selector: selector,
+              strategy: 'common-selectors',
+              detectionLog: detectionLog
+            };
+          }
+        }
+        
+        // Strategy 4: Try framework-based selectors with content filtering
+        for (const selector of frameworkSelectors) {
+          const elements = document.querySelectorAll(selector);
+          const filteredElements = Array.from(elements).filter(el => {
+            const text = el.textContent || '';
+            const hasAppointmentKeywords = /exam|test|appointment|slot|ielts|cdielts|تست|آزمون|قرار ملاقات/i.test(text);
+            const hasDateInfo = /\\d{4}-\\d{2}-\\d{2}|\\d{2}\\/\\d{2}\\/\\d{4}|\\d{1,2}\\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/i.test(text);
+            const hasTimeInfo = /\\d{1,2}:\\d{2}/.test(text);
+            return hasAppointmentKeywords || hasDateInfo || hasTimeInfo;
+          });
+          
+          if (filteredElements.length > 0) {
+            detectionLog = 'Found ' + filteredElements.length + ' elements with framework selector (filtered): ' + selector;
+            return {
+              elements: filteredElements,
+              selector: selector + ' (filtered)',
+              strategy: 'framework-filtered',
+              detectionLog: detectionLog
+            };
+          }
+        }
+        
+        // Strategy 5: Broader selectors with content filtering - Requirements 3.3
         const broadSelectors = [
           'div[class*="appointment"], div[class*="exam"], div[class*="slot"]',
           '.row .col, .row > div',
@@ -947,58 +2072,85 @@ export class WebScraperService {
         
         for (const selector of broadSelectors) {
           const elements = document.querySelectorAll(selector);
-          // Filter elements that likely contain appointment data
           const filteredElements = Array.from(elements).filter(el => {
             const text = el.textContent || '';
             const hasDate = /\\d{4}-\\d{2}-\\d{2}|\\d{2}\\/\\d{2}\\/\\d{4}/.test(text);
             const hasTime = /\\d{1,2}:\\d{2}/.test(text);
-            const hasAppointmentKeywords = /exam|test|appointment|slot|ielts|cdielts/i.test(text);
+            const hasAppointmentKeywords = /exam|test|appointment|slot|ielts|cdielts|تست|آزمون/i.test(text);
             return hasDate || hasTime || hasAppointmentKeywords;
           });
           
           if (filteredElements.length > 0) {
-            appointmentElements = filteredElements;
-            usedSelector = selector + ' (filtered)';
-            inspectionData.detectedElements.push('Used filtered fallback selector: ' + selector + ' (' + filteredElements.length + ' elements)');
-            break;
+            detectionLog = 'Found ' + filteredElements.length + ' elements with broad selector (filtered): ' + selector;
+            return {
+              elements: filteredElements,
+              selector: selector + ' (filtered)',
+              strategy: 'broad-filtered',
+              detectionLog: detectionLog
+            };
           }
         }
-      }
-      
-      // If still no elements, check for table rows with appointment data
-      if (!appointmentElements || appointmentElements.length === 0) {
+        
+        // Strategy 6: Table-based detection - Requirements 3.3
         const tableRows = document.querySelectorAll('table tr, tbody tr, .table tr');
         const appointmentRows = Array.from(tableRows).filter(row => {
           const text = row.textContent || '';
           const hasDate = /\\d{4}-\\d{2}-\\d{2}|\\d{2}\\/\\d{2}\\/\\d{4}/.test(text);
           const hasTime = /\\d{1,2}:\\d{2}/.test(text);
-          return hasDate && hasTime;
+          const hasAppointmentKeywords = /exam|test|appointment|ielts|cdielts/i.test(text);
+          return (hasDate && hasTime) || hasAppointmentKeywords;
         });
         
         if (appointmentRows.length > 0) {
-          appointmentElements = appointmentRows;
-          usedSelector = 'table rows (filtered)';
-          inspectionData.detectedElements.push('Found appointment data in ' + appointmentRows.length + ' table rows');
+          detectionLog = 'Found ' + appointmentRows.length + ' appointment rows in tables';
+          return {
+            elements: appointmentRows,
+            selector: 'table rows (filtered)',
+            strategy: 'table-based',
+            detectionLog: detectionLog
+          };
         }
-      }
-      
-      // Last resort: look for any element containing date and time patterns
-      if (!appointmentElements || appointmentElements.length === 0) {
-        const allElements = document.querySelectorAll('div, span, p, td, li');
-        const appointmentLikeElements = Array.from(allElements).filter(el => {
+        
+        // Strategy 7: Pattern-based detection for elements containing date/time - Requirements 3.3
+        const allElements = document.querySelectorAll('div, section, article, li, td');
+        const patternElements = Array.from(allElements).filter(el => {
           const text = el.textContent || '';
-          const hasDate = /\\d{4}-\\d{2}-\\d{2}|\\d{2}\\/\\d{2}\\/\\d{4}/.test(text);
-          const hasTime = /\\d{1,2}:\\d{2}/.test(text);
-          const isNotTooLarge = text.length < 500; // Avoid large containers
-          return hasDate && hasTime && isNotTooLarge;
+          const hasDateTimePattern = /\\d{4}-\\d{2}-\\d{2}.*\\d{1,2}:\\d{2}|\\d{1,2}:\\d{2}.*\\d{4}-\\d{2}-\\d{2}/.test(text);
+          const hasAppointmentContext = /exam|test|appointment|ielts|cdielts/i.test(text);
+          const hasMinimumContent = text.trim().length > 20; // Avoid empty or very short elements
+          
+          return hasDateTimePattern && hasAppointmentContext && hasMinimumContent;
         });
         
-        if (appointmentLikeElements.length > 0) {
-          appointmentElements = appointmentLikeElements;
-          usedSelector = 'date/time pattern matching';
-          inspectionData.detectedElements.push('Used pattern matching to find ' + appointmentLikeElements.length + ' potential appointment elements');
+        if (patternElements.length > 0) {
+          detectionLog = 'Found ' + patternElements.length + ' elements with date/time patterns';
+          return {
+            elements: patternElements,
+            selector: 'pattern-based detection',
+            strategy: 'pattern-matching',
+            detectionLog: detectionLog
+          };
         }
-      }
+        
+        // No elements found
+        detectionLog = 'No appointment elements found with any detection strategy';
+        return {
+          elements: [],
+          selector: 'none',
+          strategy: 'no-detection',
+          detectionLog: detectionLog
+        };
+      };
+      
+      const detectionResult = detectAppointmentElements();
+      
+      let appointmentElements = detectionResult.elements;
+      let usedSelector = detectionResult.selector;
+      
+      // Log detection results
+      inspectionData.detectedElements.push(detectionResult.detectionLog);
+      inspectionData.parsingNotes.push('Detection strategy: ' + detectionResult.strategy);
+      inspectionData.parsingNotes.push('Elements found: ' + detectionResult.elements.length + ' with selector: ' + detectionResult.selector);
       
       inspectionData.detectedElements.push('Total elements found: ' + (appointmentElements ? appointmentElements.length : 0));
       
@@ -1054,7 +2206,15 @@ export class WebScraperService {
         resultType = 'filled';
       }
       
+      // Calculate final performance metrics
+      const endTime = performance.now();
+      inspectionData.performanceMetrics.totalProcessingTime = endTime - startTime;
+      
       inspectionData.parsingNotes.push('Status summary: available=' + availableCount + ', filled=' + filledCount + ', pending=' + pendingCount);
+      inspectionData.parsingNotes.push('Performance: total=' + Math.round(inspectionData.performanceMetrics.totalProcessingTime) + 'ms, ' +
+        'detection=' + Math.round(inspectionData.performanceMetrics.elementDetectionTime) + 'ms, ' +
+        'status=' + Math.round(inspectionData.performanceMetrics.statusDetectionTime) + 'ms, ' +
+        'parsing=' + Math.round(inspectionData.performanceMetrics.parsingTime) + 'ms');
       
       return {
         type: resultType,
@@ -1078,20 +2238,48 @@ export class WebScraperService {
       appointments: resultData.appointments as Appointment[]
     };
 
-    // Save inspection data for debugging and verification
+    // Save enhanced inspection data for debugging and verification
     try {
       const pageTitle = await page.title();
-      const inspectionData: InspectionData = {
+      
+      // Create enhanced inspection data with detailed status detection reasoning
+      const enhancedInspectionData: EnhancedInspectionData = {
+        // Basic inspection data
         url: url,
         pageTitle: pageTitle,
         detectedElements: resultData.inspectionData?.detectedElements || [],
         parsingNotes: resultData.inspectionData?.parsingNotes?.join('; ') || 'No parsing notes available',
         rawAppointmentHtml: resultData.inspectionData?.rawAppointmentHtml || [],
-        checkResult: checkResult
+        checkResult: checkResult,
+        
+        // Enhanced detection details
+        detectionStrategies: this.createDetectionStrategies(resultData.inspectionData?.selectorResults || []),
+        statusDecisions: resultData.inspectionData?.statusDecisions || [],
+        selectorResults: resultData.inspectionData?.selectorResults || [],
+        validationChecks: this.validateDetectionResults(checkResult.appointments, resultData.inspectionData?.statusDecisions || []),
+        errorLog: resultData.inspectionData?.errorLog || [],
+        performanceMetrics: resultData.inspectionData?.performanceMetrics || {
+          totalProcessingTime: 0,
+          elementDetectionTime: 0,
+          statusDetectionTime: 0,
+          parsingTime: 0
+        }
       };
       
-      await this.dataInspectionService.saveInspectionData(inspectionData);
-      console.log(`🔍 Inspection data saved for ${checkResult.type} result with ${checkResult.appointmentCount} appointments`);
+      // Save both basic and enhanced inspection data
+      await this.dataInspectionService.saveInspectionData({
+        url: enhancedInspectionData.url,
+        pageTitle: enhancedInspectionData.pageTitle,
+        detectedElements: enhancedInspectionData.detectedElements,
+        parsingNotes: enhancedInspectionData.parsingNotes,
+        rawAppointmentHtml: enhancedInspectionData.rawAppointmentHtml,
+        checkResult: enhancedInspectionData.checkResult
+      });
+      
+      const enhancedInspectionId = await this.enhancedInspectionService.saveEnhancedInspectionData(enhancedInspectionData);
+      
+      console.log(`🔍 Enhanced inspection data saved (ID: ${enhancedInspectionId}) for ${checkResult.type} result with ${checkResult.appointmentCount} appointments`);
+      console.log(`📊 Detection summary: ${resultData.inspectionData?.statusDecisions?.length || 0} status decisions, ${resultData.inspectionData?.errorLog?.length || 0} errors, ${Math.round(enhancedInspectionData.performanceMetrics.totalProcessingTime)}ms total time`);
     } catch (inspectionError) {
       console.warn('⚠️  Failed to save inspection data:', inspectionError instanceof Error ? inspectionError.message : inspectionError);
     }

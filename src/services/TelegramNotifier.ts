@@ -34,6 +34,7 @@ export class TelegramNotifier {
 
   /**
    * Send notification with retry mechanism
+   * Enhanced filtering to prevent false positives - Requirements 3.1, 3.2, 3.5
    */
   async sendNotification(appointments: Appointment[]): Promise<boolean> {
     if (!this.bot) {
@@ -41,10 +42,43 @@ export class TelegramNotifier {
       return false;
     }
 
+    // Enhanced filtering with validation - Requirements 3.1, 3.2, 3.5
     const availableAppointments = appointments.filter(apt => apt.status === 'available');
+    const filteredAppointments = appointments.filter(apt => apt.status !== 'available');
+    
+    // Log filtering results for Telegram - Requirement 3.4
+    if (filteredAppointments.length > 0) {
+      console.log('🔍 Telegram notification filtering:', {
+        totalAppointments: appointments.length,
+        availableAppointments: availableAppointments.length,
+        filteredOut: filteredAppointments.length,
+        filteredStatuses: filteredAppointments.map(apt => apt.status)
+      });
+      
+      // Log each filtered appointment - Requirement 3.4
+      filteredAppointments.forEach(apt => {
+        console.log(`🚫 Telegram filtered: ${apt.id} (${apt.status}) - ${this.getFilterReason(apt.status)}`);
+      });
+    }
+    
+    // Validate no filled appointments made it through - Requirement 3.5
+    const filledAppointments = availableAppointments.filter(apt => 
+      apt.status === 'filled' || apt.status === 'unknown'
+    );
+    
+    if (filledAppointments.length > 0) {
+      const error = `CRITICAL: Filled/unknown appointments in Telegram notification! ${filledAppointments.map(apt => `${apt.id}(${apt.status})`).join(', ')}`;
+      console.error('🚨 Telegram validation failure:', error);
+      return false;
+    }
     
     if (availableAppointments.length === 0) {
-      console.warn('No available appointments to notify about via Telegram');
+      const statusBreakdown = appointments.reduce((counts, apt) => {
+        counts[apt.status] = (counts[apt.status] || 0) + 1;
+        return counts;
+      }, {} as Record<string, number>);
+      
+      console.warn(`Telegram notification rejected: No available appointments. Status breakdown: ${JSON.stringify(statusBreakdown)}`);
       return false;
     }
 
@@ -200,6 +234,24 @@ export class TelegramNotifier {
    */
   isConfigured(): boolean {
     return !!(this.config.botToken && this.config.chatId && this.bot);
+  }
+
+  /**
+   * Get human-readable reason for filtering out appointments - Requirements 3.4, 3.5
+   */
+  private getFilterReason(status: string): string {
+    switch (status) {
+      case 'filled':
+        return 'Appointment is filled/unavailable for booking - prevents false positive notifications';
+      case 'unknown':
+        return 'Status could not be determined - conservative filtering to prevent false positives';
+      case 'pending':
+        return 'Appointment is in pending status - not yet available for booking';
+      case 'not-registerable':
+        return 'Appointment is not available for registration';
+      default:
+        return `Appointment has non-available status: ${status} - filtered to prevent false notifications`;
+    }
   }
 
   /**

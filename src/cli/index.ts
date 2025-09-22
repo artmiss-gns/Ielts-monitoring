@@ -225,6 +225,41 @@ program
     }
   });
 
+// Debug-detection command
+program
+  .command('debug-detection')
+  .description('Test appointment detection algorithm with detailed analysis and debugging')
+  .option('-u, --url <url>', 'custom URL to test detection against')
+  .option('-c, --city <cities>', 'comma-separated list of cities to scan')
+  .option('-e, --exam-model <models>', 'comma-separated list of exam models')
+  .option('-m, --months <months>', 'comma-separated list of months (1-12)')
+  .option('-d, --detailed', 'show detailed detection analysis including selectors and confidence scores')
+  .option('-j, --json', 'output results in JSON format for automation')
+  .option('--show-html', 'display raw HTML snippets for manual inspection')
+  .option('--test-server', 'use local test simulation server (localhost:3001)')
+  .action(async (options) => {
+    try {
+      await cliController.debugDetectionCommand(options);
+    } catch (error) {
+      console.error(chalk.red('Error running detection debug:'), error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// Validate-detection command
+program
+  .command('validate-detection')
+  .description('Test detection accuracy against the real IELTS website (Task 7)')
+  .option('-q, --quick', 'run quick validation with limited test cases')
+  .action(async (options) => {
+    try {
+      await cliController.validateDetectionCommand(options);
+    } catch (error) {
+      console.error(chalk.red('Error validating detection:'), error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
 // Clear command
 program
   .command('clear')

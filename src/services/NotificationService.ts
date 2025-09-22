@@ -24,6 +24,7 @@ export class NotificationService {
 
   /**
    * Send notifications through all enabled channels
+   * Enhanced filtering to prevent false positives - Requirements 3.1, 3.2, 3.4, 3.5
    */
   async sendNotification(
     appointments: Appointment[],
@@ -34,11 +35,32 @@ export class NotificationService {
       telegram?: boolean;
     }
   ): Promise<NotificationRecord> {
-    // Check for available appointments upfront
-    const availableAppointments = appointments.filter(apt => apt.status === 'available');
+    // Enhanced filtering to prevent false positives - Requirements 3.1, 3.2, 3.4, 3.5
+    // Only notify about appointments with confirmed 'available' status
+    const filteringResult = this.filterAppointmentsForNotification(appointments);
     
-    if (availableAppointments.length === 0) {
-      throw new Error('No available appointments to notify about');
+    // Log comprehensive filtering results - Requirements 3.4, 3.5
+    this.logFilteringResults(filteringResult);
+    
+    // Validate that no filled appointments trigger notifications - Requirement 3.5
+    this.validateNoFilledAppointments(filteringResult.availableAppointments);
+    
+    if (filteringResult.availableAppointments.length === 0) {
+      const errorMessage = `No available appointments to notify about. Status breakdown: ${JSON.stringify(filteringResult.statusBreakdown)}`;
+      
+      // Log the rejection with detailed reasoning - Requirement 3.4
+      console.log('🚫 Notification rejected:', {
+        reason: 'No available appointments',
+        totalAppointments: appointments.length,
+        statusBreakdown: filteringResult.statusBreakdown,
+        filteredAppointments: filteringResult.filteredAppointments.map(apt => ({
+          id: apt.id,
+          status: apt.status,
+          reason: this.getFilterReason(apt.status)
+        }))
+      });
+      
+      throw new Error(errorMessage);
     }
 
     const record: NotificationRecord = {
@@ -173,15 +195,34 @@ export class NotificationService {
 
   /**
    * Send desktop notification using node-notifier
+   * Enhanced filtering validation - Requirements 3.1, 3.5
    */
   private async sendDesktopNotification(appointments: Appointment[]): Promise<void> {
     return new Promise((resolve, reject) => {
-      // Filter to only show available appointments in notifications
-      const availableAppointments = appointments.filter(apt => apt.status === 'available');
+      // Double-check filtering at desktop notification level - Requirement 3.5
+      const filteringResult = this.filterAppointmentsForNotification(appointments);
+      const { availableAppointments, filteredAppointments } = filteringResult;
+      
+      // Log any appointments that were filtered at this stage - Requirement 3.4
+      if (filteredAppointments.length > 0) {
+        console.warn('⚠️ Desktop notification: Additional filtering applied:', {
+          filteredCount: filteredAppointments.length,
+          filteredAppointments: filteredAppointments.map(apt => ({
+            id: apt.id,
+            status: apt.status,
+            details: `${apt.date} ${apt.time}`,
+            reason: this.getFilterReason(apt.status)
+          }))
+        });
+      }
+      
+      // Validate no filled appointments made it through - Requirement 3.5
+      this.validateNoFilledAppointments(availableAppointments);
       
       if (availableAppointments.length === 0) {
-        // This shouldn't happen with the new filtering logic, but handle it gracefully
-        reject(new Error('No available appointments to notify about'));
+        const errorMessage = `Desktop notification rejected: No available appointments. Status breakdown: ${JSON.stringify(filteringResult.statusBreakdown)}`;
+        console.error('🚫 Desktop notification error:', errorMessage);
+        reject(new Error(errorMessage));
         return;
       }
 
@@ -249,18 +290,45 @@ export class NotificationService {
 
   /**
    * Log notification to file with timestamp
+   * Enhanced filtering and validation - Requirements 3.1, 3.4, 3.5
    */
   private async logNotification(appointments: Appointment[]): Promise<void> {
     const timestamp = new Date().toISOString();
     
-    // Filter to only log available appointments
-    const availableAppointments = appointments.filter(apt => apt.status === 'available');
+    // Apply comprehensive filtering - Requirements 3.1, 3.2
+    const filteringResult = this.filterAppointmentsForNotification(appointments);
+    const { availableAppointments, filteredAppointments, statusBreakdown } = filteringResult;
     
+    // Validate no filled appointments are being logged as notifications - Requirement 3.5
+    this.validateNoFilledAppointments(availableAppointments);
+    
+    // Create comprehensive log entry with filtering details - Requirement 3.4
     const logEntry = {
       timestamp,
       event: 'NEW_AVAILABLE_APPOINTMENTS_FOUND',
       count: availableAppointments.length,
       totalCount: appointments.length,
+      statusBreakdown,
+      filteredCount: filteredAppointments.length,
+      
+      // Enhanced filtering details - Requirement 3.4
+      filteringDetails: {
+        availableAppointments: availableAppointments.length,
+        filledAppointments: filteredAppointments.filter(apt => apt.status === 'filled').length,
+        unknownAppointments: filteredAppointments.filter(apt => apt.status === 'unknown').length,
+        pendingAppointments: filteredAppointments.filter(apt => apt.status === 'pending').length,
+        notRegisterableAppointments: filteredAppointments.filter(apt => apt.status === 'not-registerable').length
+      },
+      
+      // Detailed filtering reasons - Requirement 3.4
+      filteredReasons: filteredAppointments.map(apt => ({
+        id: apt.id,
+        status: apt.status,
+        reason: this.getFilterReason(apt.status),
+        appointmentDetails: `${apt.date} ${apt.time} at ${apt.location}`
+      })),
+      
+      // Only log available appointments - Requirement 3.1
       appointments: availableAppointments.map(apt => ({
         id: apt.id,
         date: apt.date,
@@ -268,12 +336,22 @@ export class NotificationService {
         location: apt.location,
         examType: apt.examType,
         city: apt.city,
-        status: apt.status
-      }))
+        status: apt.status // Should always be 'available'
+      })),
+      
+      // Validation confirmation - Requirement 3.5
+      validationPassed: {
+        noFilledAppointments: !availableAppointments.some(apt => apt.status === 'filled'),
+        noUnknownAppointments: !availableAppointments.some(apt => apt.status === 'unknown'),
+        allAvailable: availableAppointments.every(apt => apt.status === 'available')
+      }
     };
 
     const logLine = JSON.stringify(logEntry) + '\n';
     await fs.appendFile(this.logFilePath, logLine, 'utf8');
+    
+    // Log summary to console - Requirement 3.4
+    console.log(`📝 Logged ${availableAppointments.length} available appointments (filtered out ${filteredAppointments.length})`);
   }
 
   /**
@@ -398,6 +476,110 @@ export class NotificationService {
    */
   isTelegramConfigured(): boolean {
     return this.telegramNotifier?.isConfigured() || false;
+  }
+
+  /**
+   * Filter appointments for notifications - Requirements 3.1, 3.2
+   * Only allows confirmed 'available' appointments to trigger notifications
+   */
+  private filterAppointmentsForNotification(appointments: Appointment[]): {
+    availableAppointments: Appointment[];
+    filteredAppointments: Appointment[];
+    statusBreakdown: Record<string, number>;
+  } {
+    const availableAppointments = appointments.filter(apt => apt.status === 'available');
+    const filteredAppointments = appointments.filter(apt => apt.status !== 'available');
+    
+    // Create status breakdown for logging
+    const statusBreakdown = appointments.reduce((counts, apt) => {
+      counts[apt.status] = (counts[apt.status] || 0) + 1;
+      return counts;
+    }, {} as Record<string, number>);
+    
+    return {
+      availableAppointments,
+      filteredAppointments,
+      statusBreakdown
+    };
+  }
+
+  /**
+   * Log comprehensive filtering results - Requirements 3.4, 3.5
+   */
+  private logFilteringResults(filteringResult: {
+    availableAppointments: Appointment[];
+    filteredAppointments: Appointment[];
+    statusBreakdown: Record<string, number>;
+  }): void {
+    const { availableAppointments, filteredAppointments, statusBreakdown } = filteringResult;
+    
+    if (filteredAppointments.length > 0) {
+      console.log('🔍 Notification Filtering Results:', {
+        totalAppointments: availableAppointments.length + filteredAppointments.length,
+        availableAppointments: availableAppointments.length,
+        filteredOut: filteredAppointments.length,
+        statusBreakdown,
+        filteredStatuses: filteredAppointments.map(apt => apt.status)
+      });
+      
+      // Log each filtered appointment with detailed reasoning - Requirement 3.4
+      filteredAppointments.forEach(apt => {
+        const reason = this.getFilterReason(apt.status);
+        console.log(`🚫 Filtered appointment ${apt.id}: status='${apt.status}' - ${reason}`);
+        console.log(`   Details: ${apt.date} ${apt.time} at ${apt.location} (${apt.examType})`);
+      });
+      
+      // Log summary by status type
+      const statusSummary = Object.entries(statusBreakdown)
+        .filter(([status]) => status !== 'available')
+        .map(([status, count]) => `${count} ${status}`)
+        .join(', ');
+      
+      if (statusSummary) {
+        console.log(`📊 Filtered appointments summary: ${statusSummary}`);
+      }
+    } else {
+      console.log('✅ All appointments are available - no filtering needed');
+    }
+  }
+
+  /**
+   * Validate that no filled appointments trigger notifications - Requirement 3.5
+   */
+  private validateNoFilledAppointments(availableAppointments: Appointment[]): void {
+    const filledAppointments = availableAppointments.filter(apt => 
+      apt.status === 'filled' || apt.status === 'unknown'
+    );
+    
+    if (filledAppointments.length > 0) {
+      const error = new Error(
+        `CRITICAL: Filled/unknown appointments passed filtering validation! ` +
+        `This should never happen. Appointments: ${filledAppointments.map(apt => 
+          `${apt.id}(${apt.status})`
+        ).join(', ')}`
+      );
+      
+      console.error('🚨 VALIDATION FAILURE:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Get human-readable reason for filtering out appointments - Requirements 3.4, 3.5
+   */
+  private getFilterReason(status: string): string {
+    switch (status) {
+      case 'filled':
+        return 'Appointment is filled/unavailable for booking - prevents false positive notifications';
+      case 'unknown':
+        return 'Status could not be determined - conservative filtering to prevent false positives';
+      case 'pending':
+        return 'Appointment is in pending status - not yet available for booking';
+      case 'not-registerable':
+        return 'Appointment is not available for registration';
+      default:
+        return `Appointment has non-available status: ${status} - filtered to prevent false notifications`;
+    }
   }
 
   /**

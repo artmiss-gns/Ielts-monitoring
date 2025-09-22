@@ -156,6 +156,51 @@ export interface CheckResult {
 }
 
 /**
+ * Enhanced status detection result with detailed reasoning
+ */
+export interface StatusDetectionResult {
+  status: 'available' | 'filled' | 'pending' | 'not-registerable' | 'unknown';
+  confidence: number; // 0-1 confidence score
+  indicators: StatusIndicator[];
+  reasoning: string;
+  fallbackUsed: boolean;
+}
+
+/**
+ * Status indicator found during detection
+ */
+export interface StatusIndicator {
+  type: 'css-class' | 'text-content' | 'interactive-element' | 'contextual';
+  value: string;
+  weight: number; // Importance weight
+  source: 'element' | 'sibling' | 'parent';
+}
+
+/**
+ * Detection strategy result
+ */
+export interface DetectionStrategy {
+  name: string;
+  priority: number;
+  selectors: string[];
+  elementsFound: number;
+  successRate: number;
+  processingTime: number;
+}
+
+/**
+ * Enhanced appointment with detection metadata
+ */
+export interface EnhancedAppointment extends Appointment {
+  // Detection metadata
+  detectionMethod: string;
+  statusIndicators: string[];
+  confidenceScore: number;
+  parsingNotes: string[];
+  elementIndex: number;
+}
+
+/**
  * Inspection data for debugging and verification
  */
 export interface InspectionData {
@@ -165,4 +210,51 @@ export interface InspectionData {
   parsingNotes: string;
   rawAppointmentHtml: string[];
   checkResult: CheckResult;
+}
+
+/**
+ * Enhanced inspection data with detailed status detection reasoning
+ */
+export interface EnhancedInspectionData extends InspectionData {
+  // Enhanced detection details
+  detectionStrategies: DetectionStrategy[];
+  statusDecisions: {
+    elementIndex: number;
+    finalStatus: string;
+    indicators: StatusIndicator[];
+    reasoning: string;
+    confidenceScore: number;
+    rawHtml: string;
+  }[];
+  
+  // Selector analysis
+  selectorResults: {
+    selector: string;
+    elementCount: number;
+    strategy: string;
+    sampleHtml?: string;
+  }[];
+  
+  // Validation results
+  validationChecks: {
+    check: string;
+    passed: boolean;
+    details: string;
+  }[];
+  
+  // Error tracking
+  errorLog: {
+    timestamp: Date;
+    error: string;
+    context: string;
+    elementIndex?: number;
+  }[];
+  
+  // Performance metrics
+  performanceMetrics: {
+    totalProcessingTime: number;
+    elementDetectionTime: number;
+    statusDetectionTime: number;
+    parsingTime: number;
+  };
 }

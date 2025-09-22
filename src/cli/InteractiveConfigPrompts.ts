@@ -7,33 +7,57 @@ import { EnvironmentConfigManager } from '../services/EnvironmentConfigManager';
  * Interactive configuration prompts for CLI setup
  */
 export class InteractiveConfigPrompts {
-  private rl: readline.Interface;
+  private rl: readline.Interface | null = null;
 
   constructor() {
-    this.rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout
-    });
+    // Don't create readline interface until needed
+  }
+
+  /**
+   * Create readline interface if not exists
+   */
+  private ensureReadlineInterface(): void {
+    if (!this.rl) {
+      this.rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+      });
+    }
+  }
+
+  /**
+   * Close readline interface if exists
+   */
+  private closeReadlineInterface(): void {
+    if (this.rl) {
+      this.rl.close();
+      this.rl = null;
+    }
   }
 
   /**
    * Prompt user for complete configuration
    */
   async promptForConfiguration(currentConfig?: MonitorConfig): Promise<MonitorConfig> {
+    this.ensureReadlineInterface();
+    
     console.log(chalk.blue('🔧 Interactive Configuration Setup'));
     console.log(chalk.gray('Press Enter to use default values shown in [brackets]\n'));
 
-    const config: MonitorConfig = {
-      city: await this.promptForCities(currentConfig?.city),
-      examModel: await this.promptForExamModels(currentConfig?.examModel),
-      months: await this.promptForMonths(currentConfig?.months),
-      checkInterval: await this.promptForCheckInterval(currentConfig?.checkInterval),
-      baseUrl: await this.promptForBaseUrl(currentConfig?.baseUrl),
-      notificationSettings: await this.promptForNotificationSettings(currentConfig?.notificationSettings)
-    };
+    try {
+      const config: MonitorConfig = {
+        city: await this.promptForCities(currentConfig?.city),
+        examModel: await this.promptForExamModels(currentConfig?.examModel),
+        months: await this.promptForMonths(currentConfig?.months),
+        checkInterval: await this.promptForCheckInterval(currentConfig?.checkInterval),
+        baseUrl: await this.promptForBaseUrl(currentConfig?.baseUrl),
+        notificationSettings: await this.promptForNotificationSettings(currentConfig?.notificationSettings)
+      };
 
-    this.rl.close();
-    return config;
+      return config;
+    } finally {
+      this.closeReadlineInterface();
+    }
   }
 
   /**
@@ -318,24 +342,34 @@ export class InteractiveConfigPrompts {
    * Confirm restart prompt
    */
   async confirmRestart(): Promise<boolean> {
-    const input = await this.question(
-      chalk.yellow('Monitor is currently running. Restart with new configuration? [Y/n]: ')
-    );
+    this.ensureReadlineInterface();
     
-    if (!input.trim()) {
-      return true;
-    }
+    try {
+      const input = await this.question(
+        chalk.yellow('Monitor is currently running. Restart with new configuration? [Y/n]: ')
+      );
+      
+      if (!input.trim()) {
+        return true;
+      }
 
-    const normalized = input.trim().toLowerCase();
-    return normalized === 'y' || normalized === 'yes' || normalized === 'true';
+      const normalized = input.trim().toLowerCase();
+      return normalized === 'y' || normalized === 'yes' || normalized === 'true';
+    } finally {
+      this.closeReadlineInterface();
+    }
   }
 
   /**
    * Wrapper for readline question
    */
   private question(prompt: string): Promise<string> {
+    if (!this.rl) {
+      throw new Error('Readline interface not initialized');
+    }
+    
     return new Promise((resolve) => {
-      this.rl.question(prompt, (answer) => {
+      this.rl!.question(prompt, (answer) => {
         resolve(answer);
       });
     });

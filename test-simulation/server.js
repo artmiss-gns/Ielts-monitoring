@@ -105,6 +105,85 @@ app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
+// IELTS timetable route (matches real website path)
+app.get('/ielts/timetable', (req, res) => {
+  const timetablePath = path.join(__dirname, 'public', 'ielts-timetable.html');
+  res.sendFile(timetablePath, (err) => {
+    if (err) {
+      console.error('Error serving IELTS timetable:', err);
+      res.status(500).json({ error: 'Failed to load IELTS timetable' });
+    }
+  });
+});
+
+// Route to reset appointments to default test data
+app.post('/api/reset-test-data', async (req, res) => {
+  try {
+    const defaultAppointments = [
+      {
+        "id": "filled-1",
+        "date": "2025-10-27",
+        "time": "ظهر (۱۳:۳۰ - ۱۶:۳۰)",
+        "location": "اصفهان (ایده نواندیش)",
+        "city": "Isfahan",
+        "examType": "cdielts - (Ac/Gt)",
+        "price": "۲۹۱,۱۱۵,۰۰۰ ریال",
+        "persianDate": "۱۴۰۴/۰۸/۰۵",
+        "status": "filled",
+        "filledIndicators": ["disabled", "تکمیل ظرفیت"],
+        "registrationUrl": null
+      },
+      {
+        "id": "filled-2", 
+        "date": "2025-11-03",
+        "time": "صبح (۰۹:۰۰ - ۱۲:۰۰)",
+        "location": "اصفهان (ایده نواندیش)",
+        "city": "Isfahan",
+        "examType": "cdielts - (Ac/Gt)",
+        "price": "۲۹۱,۱۱۵,۰۰۰ ریال",
+        "persianDate": "۱۴۰۴/۰۸/۱۲",
+        "status": "filled",
+        "filledIndicators": ["disabled", "تکمیل ظرفیت"],
+        "registrationUrl": null
+      },
+      {
+        "id": "available-1",
+        "date": "2025-11-10",
+        "time": "ظهر (۱۳:۳۰ - ۱۶:۳۰)",
+        "location": "اصفهان (ایده نواندیش)",
+        "city": "Isfahan", 
+        "examType": "cdielts - (Ac/Gt)",
+        "price": "۲۹۱,۱۱۵,۰۰۰ ریال",
+        "persianDate": "۱۴۰۴/۰۸/۱۹",
+        "status": "available",
+        "filledIndicators": [],
+        "availableIndicators": ["قابل ثبت نام", "active-button"],
+        "registrationUrl": "https://irsafam.org/ielts/register/available-1"
+      },
+      {
+        "id": "available-2",
+        "date": "2025-11-17",
+        "time": "صبح (۰۹:۰۰ - ۱۲:۰۰)",
+        "location": "تهران (مرکز آزمون)",
+        "city": "Tehran",
+        "examType": "cdielts - (Ac/Gt)",
+        "price": "۲۹۱,۱۱۵,۰۰۰ ریال",
+        "persianDate": "۱۴۰۴/۰۸/۲۶",
+        "status": "available",
+        "filledIndicators": [],
+        "availableIndicators": ["قابل ثبت نام", "active-button"],
+        "registrationUrl": "https://irsafam.org/ielts/register/available-2"
+      }
+    ];
+    
+    await writeAppointments(defaultAppointments);
+    res.json({ message: 'Test data reset successfully', count: defaultAppointments.length });
+  } catch (error) {
+    console.error('Error resetting test data:', error);
+    res.status(500).json({ error: 'Failed to reset test data' });
+  }
+});
+
 // Catch-all route for SPA
 app.get('*', (req, res) => {
   const indexPath = path.join(__dirname, 'public', 'index.html');
@@ -119,7 +198,9 @@ app.get('*', (req, res) => {
           'POST /api/appointments',
           'PUT /api/appointments/:id',
           'DELETE /api/appointments',
-          'GET /health'
+          'GET /health',
+          'GET /ielts/timetable',
+          'POST /api/reset-test-data'
         ]
       });
     }
