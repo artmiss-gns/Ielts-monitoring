@@ -535,5 +535,7 @@ If you encounter issues or have questions:
 - [ ] Docker containerization
 
 ---
+## AI Assistance and History Disclosure
+This project was built with AI assistance as part of an experiment to evaluate agentic AI capabilities and, simultaneously, to help students discover IELTS exam appointments. As part of this experiment, the commit history for early September 2025 was reorganized locally to present a clearer narrative of the work.  
 
 **Happy IELTS appointment hunting! 🎯**
