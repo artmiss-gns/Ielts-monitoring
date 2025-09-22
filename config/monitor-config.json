@@ -9,7 +9,7 @@
     10
   ],
   "checkInterval": 30000,
-  "baseUrl": "http://localhost:3001/",
+  "baseUrl": "https://irsafam.org/ielts/timetable",
   "notificationSettings": {
     "desktop": false,
     "audio": false,
