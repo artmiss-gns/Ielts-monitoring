@@ -24,3 +24,7 @@ import './healthcheck';
 
 // Import and run CLI
 import './cli/index';
+import startHealthCheckServer from './healthcheck';
+
+// Start the health check server
+startHealthCheckServer();

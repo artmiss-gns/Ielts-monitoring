@@ -29,17 +29,7 @@ RUN npm run build:prod
 FROM node:18-alpine AS runtime
 
 # Install Chrome dependencies for Puppeteer and system utilities
-RUN apk add --no-cache \
-    chromium \
-    nss \
-    freetype \
-    freetype-dev \
-    harfbuzz \
-    ca-certificates \
-    ttf-freefont \
-    dumb-init \
-    wget \
-    && rm -rf /var/cache/apk/*
+RUN apk add --no-cache     chromium     nss     freetype     freetype-dev     harfbuzz     ca-certificates     ttf-freefont     dumb-init     curl     && rm -rf /var/cache/apk/*
 
 # Create non-root user for security
 RUN addgroup -g 1001 -S nodejs && \
@@ -57,9 +47,6 @@ RUN npm ci --only=production --no-audit --no-fund && \
 
 # Copy built application from builder stage
 COPY --from=builder /app/dist ./dist
-
-# Copy start script
-COPY scripts/start.sh ./
 
 # Create runtime directories and set ownership
 RUN mkdir -p /app/config /app/logs /app/data && \
@@ -81,15 +68,15 @@ ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
 # Switch to non-root user
 USER ielts
 
-# Expose the health check port (Koyeb requires port 8000 for health checks)
+# Expose port for health checks
 EXPOSE 8000
 
-# Health check to verify the /health endpoint responds OK
-HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
-    CMD node -e "(async()=>{const p=process.env.PORT||8000;try{const r=await fetch('http://127.0.0.1:'+p+'/health');process.exit(r.ok?0:1)}catch(e){process.exit(1)}})()"
+# Health check to verify application is responsive
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
 
 # Use dumb-init for proper signal handling
 # ENTRYPOINT ["dumb-init", "--"]
 
 # Default command - use existing entrypoint (same behavior as local)
-CMD ["sh", "/app/start.sh"]
+CMD ["node", "dist/index.js", "start", "--daemon"]
