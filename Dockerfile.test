@@ -1,90 +1,18 @@
-# Multi-stage build for IELTS Appointment Monitor - Koyeb Optimized
-# Stage 1: Build stage
-FROM node:20-slim AS builder
+# Test Dockerfile
+FROM node:20-slim
 
-# Install build dependencies required for native modules using apt-get
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    make \
-    g++ \
-    git \
-    && rm -rf /var/lib/apt/lists/*
+# Create non-root user
+RUN adduser --disabled-password --gecos '' testuser && \
+    chown -R testuser:testuser /app
 
 # Set working directory
 WORKDIR /app
 
-# Copy package files first for better layer caching
-COPY package*.json ./
-COPY tsconfig.json ./
+# Expose port for health checks
+EXPOSE 3000
 
-# Install all dependencies (including dev dependencies for build)
-RUN npm ci --no-audit --no-fund
+# Use dumb-init for proper signal handling
+ENTRYPOINT ["dumb-init", "--"]
 
-# Copy source code
-COPY src/ ./src/
-
-# Build TypeScript application
-RUN npm run build:prod
-
-# ---
-
-# Stage 2: Production runtime
-FROM node:20-slim AS runtime
-
-# Install Chromium dependencies and utilities using apt-get
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    chromium \
-    dumb-init \
-    curl \
-    libnss3 \
-    libatk-bridge2.0-0 \
-    libgtk-3-0 \
-    libasound2 \
-    libxshmfence1 \
-    fonts-freefont-ttf \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# Create non-root user for security using Debian-compatible syntax
-RUN addgroup --system --gid 1001 nodejs && \
-    adduser --system --no-create-home --uid 1001 --ingroup nodejs ielts
-
-# Set working directory
-WORKDIR /app
-
-# Copy package files for production dependency installation
-COPY package*.json ./
-
-# Install only production dependencies
-RUN npm ci --only=production --no-audit --no-fund && \
-    npm cache clean --force
-
-# Copy built application from builder stage
-COPY --from=builder /app/dist ./dist
-
-# Create runtime directories and set ownership
-RUN mkdir -p /app/config /app/logs /app/data && \
-    chown -R ielts:nodejs /app
-
-# Bake default config and initial data into the image
-COPY --chown=ielts:nodejs config/ ./config/
-
-# Set Puppeteer environment variables for containerized Chrome
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
-    NODE_ENV=production \
-    CHROME_BIN=/usr/bin/chromium \
-    CHROME_PATH=/usr/bin/chromium \
-    PUPPETEER_ARGS=--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage,--disable-accelerated-2d-canvas,--no-first-run,--no-zygote,--disable-gpu
-
-# --- DEBUGGING STEP: Temporarily run as root ---
-# USER ielts
-
-# Expose port for your application
-EXPOSE 8000
-
-# --- DEBUGGING STEP: Temporarily disable custom entrypoint ---
-# ENTRYPOINT ["dumb-init", "--"]
-
-# Default command to run your application
-CMD ["node", "dist/index.js", "start"]
+# Default command - print message
+CMD ["echo", "Hello, Koyeb!"]
