@@ -22,8 +22,8 @@ logs
 
 # Runtime data
 data
-config/*.json
-!config/*.example.json
+# config/*.json
+# !config/*.example.json
 
 # Test files and coverage
 coverage
