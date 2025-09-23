@@ -1,3 +1,5 @@
+console.log('Starting application...');
+
 /**
  * IELTS Appointment Monitor
  * Main entry point for the application
@@ -27,4 +29,6 @@ import './cli/index';
 import startHealthCheckServer from './healthcheck';
 
 // Start the health check server
+console.log('Initializing health check server...');
 startHealthCheckServer();
+console.log('Health check server initialized.');
