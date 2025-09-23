@@ -38,6 +38,7 @@ RUN apk add --no-cache \
     ca-certificates \
     ttf-freefont \
     dumb-init \
+    wget \
     && rm -rf /var/cache/apk/*
 
 # Create non-root user for security
@@ -56,6 +57,9 @@ RUN npm ci --only=production --no-audit --no-fund && \
 
 # Copy built application from builder stage
 COPY --from=builder /app/dist ./dist
+
+# Copy start script
+COPY scripts/start.sh ./
 
 # Create runtime directories and set ownership
 RUN mkdir -p /app/config /app/logs /app/data && \
@@ -77,15 +81,15 @@ ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
 # Switch to non-root user
 USER ielts
 
-# Expose port for health checks (optional if you later add a health endpoint)
-EXPOSE 3000
+# Expose port for health checks (matches default in health server; Koyeb sets PORT at runtime)
+EXPOSE 8080
 
-# Health check to verify container is alive
-HEALTHCHECK --interval=120s --timeout=10s --start-period=30s --retries=3 \
-    CMD node -e "console.log('Health check passed')" || exit 1
+# Health check to verify the /health endpoint responds OK
+HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
+    CMD node -e "(async()=>{const p=process.env.PORT||8080;try{const r=await fetch('http://127.0.0.1:'+p+'/health');process.exit(r.ok?0:1)}catch(e){process.exit(1)}})()"
 
 # Use dumb-init for proper signal handling
 # ENTRYPOINT ["dumb-init", "--"]
 
 # Default command - use existing entrypoint (same behavior as local)
-CMD ["node", "dist/index.js", "start", "--daemon"]
+CMD ["sh", "/app/start.sh"]

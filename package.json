@@ -29,7 +29,8 @@
     "create:windows-executable": "echo '@echo off' > ielts-monitor.bat && echo 'node \"%~dp0dist\\cli\\index.js\" %*' >> ielts-monitor.bat",
     "package:all": "bash scripts/package.sh",
     "install:global": "npm run build:prod && npm link",
-    "uninstall:global": "npm unlink"
+    "uninstall:global": "npm unlink",
+    "health-check": "ts-node src/healthcheck.ts"
   },
   "keywords": [
     "ielts",
