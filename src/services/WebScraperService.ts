@@ -75,25 +75,22 @@ export class WebScraperService {
       }
     }
     
-    const launchOptions = {
-      headless: 'new' as any,
-      executablePath: '/usr/bin/chromium',
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--disable-gpu'
-      ]
-    };
+    if (!this.browser) {
+        const launchOptions = {
+          headless: 'new' as any,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage'
+          ]
+        };
 
-    try {
-      this.browser = await puppeteer.launch(launchOptions);
-    } catch (error) {
-      console.error("!!! FAILED TO LAUNCH PUPPETEER !!!", error);
-      throw new Error("Failed to initialize browser.");
+        try {
+          this.browser = await puppeteer.launch(launchOptions);
+        } catch (error) {
+          console.error("!!! FAILED TO LAUNCH PUPPETEER !!!", error);
+          throw new Error("Failed to initialize browser.");
+        }
     }
   }
 
@@ -125,16 +122,11 @@ export class WebScraperService {
     try {
       // Try to launch a browser instance briefly
       const browser = await puppeteer.launch({
-        headless: true,
-        executablePath: '/usr/bin/chromium',
+        headless: 'new' as any,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--no-first-run',
-          '--no-zygote',
-          '--disable-gpu'
+          '--disable-dev-shm-usage'
         ]
       });
       await browser.close();
