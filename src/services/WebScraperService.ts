@@ -76,78 +76,36 @@ export class WebScraperService {
     }
     
     if (!this.browser) {
-      try {
-        // Try to launch browser with multiple fallback options
-        this.browser = await this.launchBrowserWithFallbacks();
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        throw new Error(
-          `Failed to initialize browser: ${errorMessage}\n\n` +
-          `Possible solutions:\n` +
-          `1. Install Chromium: sudo apt-get install chromium-browser (Linux) or brew install chromium (macOS)\n` +
-          `2. Install Chrome: Download from https://www.google.com/chrome/\n` +
-          `3. Set PUPPETEER_EXECUTABLE_PATH environment variable to your browser path\n` +
-          `4. Use --test-server flag to test against local simulation server instead`
-        );
-      }
-    }
-  }
+        // Define all the options needed for a Docker environment in one object.
+        const launchOptions = {
+          headless: 'new' as any, // Use 'new' for modern headless, with type assertion
+          executablePath: '/usr/bin/chromium',
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu'
+          ]
+        };
 
-  /**
-   * Launch browser with multiple fallback options
-   */
-  private async launchBrowserWithFallbacks(): Promise<Browser> {
-    const launchOptions = {
-      headless: 'new',
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--disable-gpu',
-        '--disable-web-security',
-        '--disable-features=VizDisplayCompositor'
-      ]
-    };
+        try {
+          // Launch the browser with our complete set of options.
+          this.browser = await puppeteer.launch(launchOptions);
+        } catch (error) {
+          console.error("!!! FAILED TO LAUNCH PUPPETEER !!!");
+          console.error("Launch Options Used:", launchOptions);
+          console.error("Error:", error);
 
-    // Try different browser executable paths
-    const possiblePaths = [
-      process.env.PUPPETEER_EXECUTABLE_PATH,
-      '/usr/bin/chromium-browser',
-      '/usr/bin/chromium',
-      '/usr/bin/google-chrome',
-      '/usr/bin/google-chrome-stable',
-      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-      '/Applications/Chromium.app/Contents/MacOS/Chromium'
-    ].filter(Boolean);
-
-    // First try default puppeteer launch (uses bundled Chromium)
-    try {
-      return await puppeteer.launch(launchOptions);
-    } catch (defaultError) {
-      console.warn('Default browser launch failed, trying alternative paths...');
-    }
-
-    // Try each possible browser path
-    for (const executablePath of possiblePaths) {
-      try {
-        const fs = await import('fs');
-        if (fs.existsSync(executablePath as string)) {
-          return await puppeteer.launch({
-            ...launchOptions,
-            executablePath: executablePath as string
-          });
+          // Re-throw the error to ensure the application stops correctly.
+          throw new Error("Failed to initialize browser.");
         }
-      } catch (error) {
-        console.warn(`Failed to launch browser at ${executablePath}:`, error);
-        continue;
-      }
     }
-
-    throw new Error('No suitable browser executable found');
   }
+
+  
 
   /**
    * Close the browser instance
@@ -175,7 +133,7 @@ export class WebScraperService {
     try {
       // Try to launch a browser instance briefly
       const browser = await puppeteer.launch({
-        headless: 'new',
+        headless: true,
         executablePath: '/usr/bin/chromium',
         args: [
           '--no-sandbox',
