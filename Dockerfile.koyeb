@@ -1,4 +1,4 @@
-# Multi-stage build for IELTS Appointment Monitor
+# Multi-stage build for IELTS Appointment Monitor - Koyeb Optimized
 # Stage 1: Build stage
 FROM node:18-alpine AS builder
 
@@ -57,29 +57,34 @@ RUN npm ci --only=production --no-audit --no-fund && \
 # Copy built application from builder stage
 COPY --from=builder /app/dist ./dist
 
-# Create directories for volumes with proper permissions
+# Create directories for internal storage with proper permissions
 RUN mkdir -p /app/config /app/logs /app/data && \
     chown -R ielts:nodejs /app
+
+# Copy default configuration files if they exist
+COPY --chown=ielts:nodejs config/ ./config/ 2>/dev/null || true
+COPY --chown=ielts:nodejs data/ ./data/ 2>/dev/null || true
 
 # Set Puppeteer environment variables for containerized Chrome
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser \
     NODE_ENV=production \
     CHROME_BIN=/usr/bin/chromium-browser \
-    CHROME_PATH=/usr/bin/chromium-browser
+    CHROME_PATH=/usr/bin/chromium-browser \
+    PUPPETEER_ARGS=--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage,--disable-accelerated-2d-canvas,--no-first-run,--no-zygote,--disable-gpu
 
 # Switch to non-root user
 USER ielts
 
-# Expose port for health checks
+# Expose port for health checks (optional if you later add a health endpoint)
 EXPOSE 3000
 
-# Health check to verify application can start
+# Health check to verify container is alive
 HEALTHCHECK --interval=120s --timeout=10s --start-period=30s --retries=3 \
     CMD node -e "console.log('Health check passed')" || exit 1
 
 # Use dumb-init for proper signal handling
 ENTRYPOINT ["dumb-init", "--"]
 
-# Default command - start monitoring
+# Default command - use existing entrypoint (same behavior as local)
 CMD ["node", "dist/index.js", "start"]
