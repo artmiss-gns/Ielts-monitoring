@@ -8,7 +8,8 @@ import * as dotenv from 'dotenv';
 // Load environment variables early so MONITOR_BASE_URL/PORT are available
 dotenv.config();
 
-const PORT = process.env.PORT ? Number(process.env.PORT) : 8080;
+// Default to 8000 for Koyeb compatibility, override with PORT environment variable if needed
+const PORT = process.env.PORT ? Number(process.env.PORT) : 8000;
 
 interface MonitorConfig {
   baseUrl: string;

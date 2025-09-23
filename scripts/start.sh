@@ -1,8 +1,10 @@
 #!/bin/bash
 
 # Start the health check server in the background
-echo "Starting health check server on port 8080..."
-PORT=8080 node dist/healthcheck.js &
+echo "Starting health check server on port 8000..."
+PORT=8000 node dist/healthcheck.js \
+  &> >(sed 's/^/HEALTH CHECK: /') \
+  &
 HEALTH_CHECK_PID=$!
 
 # Start the main application
