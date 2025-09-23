@@ -75,33 +75,25 @@ export class WebScraperService {
       }
     }
     
-    if (!this.browser) {
-        // Define all the options needed for a Docker environment in one object.
-        const launchOptions = {
-          headless: 'new' as any, // Use 'new' for modern headless, with type assertion
-          executablePath: '/usr/bin/chromium',
-          args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--disable-gpu'
-          ]
-        };
+    const launchOptions = {
+      headless: 'new' as any,
+      executablePath: '/usr/bin/chromium',
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--disable-gpu'
+      ]
+    };
 
-        try {
-          // Launch the browser with our complete set of options.
-          this.browser = await puppeteer.launch(launchOptions);
-        } catch (error) {
-          console.error("!!! FAILED TO LAUNCH PUPPETEER !!!");
-          console.error("Launch Options Used:", launchOptions);
-          console.error("Error:", error);
-
-          // Re-throw the error to ensure the application stops correctly.
-          throw new Error("Failed to initialize browser.");
-        }
+    try {
+      this.browser = await puppeteer.launch(launchOptions);
+    } catch (error) {
+      console.error("!!! FAILED TO LAUNCH PUPPETEER !!!", error);
+      throw new Error("Failed to initialize browser.");
     }
   }
 
