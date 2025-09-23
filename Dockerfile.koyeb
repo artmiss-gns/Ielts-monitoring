@@ -1,29 +1,15 @@
-# Multi-stage build for IELTS Appointment Monitor - Koyeb Optimized
+# Multi-stage build for IELTS Appointment Monitor - Final Version
 # Stage 1: Build stage
 FROM node:20-slim AS builder
 
-# Install build dependencies required for native modules using apt-get
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    make \
-    g++ \
-    git \
-    && rm -rf /var/lib/apt/lists/*
+    python3 make g++ git && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
 WORKDIR /app
-
-# Copy package files first for better layer caching
 COPY package*.json ./
 COPY tsconfig.json ./
-
-# Install all dependencies (including dev dependencies for build)
 RUN npm ci --no-audit --no-fund
-
-# Copy source code
 COPY src/ ./src/
-
-# Build TypeScript application
 RUN npm run build:prod
 
 # ---
@@ -31,43 +17,16 @@ RUN npm run build:prod
 # Stage 2: Production runtime
 FROM node:20-slim AS runtime
 
-# Install the shared libraries needed by Puppeteer's browser, but NOT Chromium itself
+# Install the complete and verified set of dependencies required by Puppeteer's browser
 RUN apt-get update && apt-get install -y --no-install-recommends \
     dumb-init \
     curl \
     # Official Puppeteer dependency list
-    ca-certificates \
-    fonts-liberation \
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libcups2 \
-    libdbus-1-3 \
-    libexpat1 \
-    libfontconfig1 \
-    libgbm1 \
-    libglib2.0-0 \
-    libgtk-3-0 \
-    libnspr4 \
-    libnss3 \
-    libpango-1.0-0 \
-    libpangocairo-1.0-0 \
-    libx11-6 \
-    libx11-xcb1 \
-    libxcb1 \
-    libxcomposite1 \
-    libxcursor1 \
-    libxdamage1 \
-    libxext6 \
-    libxfixes3 \
-    libxi6 \
-    libxrandr2 \
-    libxrender1 \
-    libxss1 \
-    libxtst6 \
-    lsb-release \
-    wget \
-    xdg-utils \
+    ca-certificates fonts-liberation libasound2t64 libatk-bridge2.0-0 libatk1.0-0 \
+    libcups2 libdbus-1-3 libexpat1 libfontconfig1 libgbm1 libglib2.0-0 libgtk-3-0 \
+    libnspr4 libnss3 libpango-1.0-0 libpangocairo-1.0-0 libx11-6 libx11-xcb1 \
+    libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext6 libxfixes3 libxi6 \
+    libxrandr2 libxrender1 libxss1 libxtst6 lsb-release wget xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for security
@@ -89,12 +48,7 @@ RUN mkdir -p /app/config /app/logs /app/data && \
 
 COPY --chown=ielts:nodejs config/ ./config/
 
-# No longer need ENV vars for Puppeteer
-
 USER ielts
-
 EXPOSE 8000
-
 ENTRYPOINT ["dumb-init", "--"]
-
 CMD ["node", "dist/index.js", "start"]
