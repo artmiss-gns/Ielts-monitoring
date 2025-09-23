@@ -98,7 +98,7 @@ export class WebScraperService {
    */
   private async launchBrowserWithFallbacks(): Promise<Browser> {
     const launchOptions = {
-      headless: true,
+      headless: 'new',
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
@@ -175,8 +175,17 @@ export class WebScraperService {
     try {
       // Try to launch a browser instance briefly
       const browser = await puppeteer.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
+        headless: 'new',
+        executablePath: '/usr/bin/chromium',
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--no-zygote',
+          '--disable-gpu'
+        ]
       });
       await browser.close();
       
