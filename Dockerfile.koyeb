@@ -46,6 +46,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# --- DEBUGGING STEP: Find the real path of the chromium executable ---
+RUN which chromium
+
 # Create non-root user for security using Debian-compatible syntax
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --no-create-home --uid 1001 --ingroup nodejs ielts
